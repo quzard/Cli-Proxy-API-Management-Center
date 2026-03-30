@@ -179,12 +179,31 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
   const traceCandidates = useMemo(() => {
     if (!traceLogLine) return [];
 
-    const logPath = normalizeTracePath(traceLogLine.path);
-    if (!logPath) return [];
-
+    const logRequestId = String(traceLogLine.requestId ?? '').trim().toLowerCase();
     const logTimestampMs = traceLogLine.timestamp
       ? Date.parse(traceLogLine.timestamp)
       : Number.NaN;
+
+    if (logRequestId) {
+      const requestMatched = traceUsageDetails
+        .filter((detail) => detail.__requestId?.toLowerCase() === logRequestId)
+        .map((detail) => {
+          const timeDeltaMs =
+            !Number.isNaN(logTimestampMs) && detail.__timestampMs > 0
+              ? Math.abs(logTimestampMs - detail.__timestampMs)
+              : null;
+          return { detail, modelMatched: false, timeDeltaMs } satisfies TraceCandidate;
+        })
+        .sort((a, b) => (b.detail.__timestampMs || 0) - (a.detail.__timestampMs || 0))
+        .slice(0, TRACE_MAX_CANDIDATES);
+
+      if (requestMatched.length > 0) {
+        return requestMatched;
+      }
+    }
+
+    const logPath = normalizeTracePath(traceLogLine.path);
+    if (!logPath) return [];
 
     // Step 1: filter by path match
     const pathMatched = traceUsageDetails.filter((detail) =>

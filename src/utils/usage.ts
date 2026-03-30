@@ -56,6 +56,7 @@ export interface UsageDetailWithEndpoint extends UsageDetail {
   __endpoint: string;
   __endpointMethod?: string;
   __endpointPath?: string;
+  __requestId?: string;
   __timestampMs: number;
 }
 
@@ -562,6 +563,24 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
         const timestamp = detailRaw.timestamp;
         const timestampMs = Date.parse(timestamp);
         const tokensRaw = isRecord(detailRaw.tokens) ? detailRaw.tokens : {};
+        const detailMethod =
+          typeof detailRaw.method === 'string' && detailRaw.method.trim()
+            ? detailRaw.method.trim().toUpperCase()
+            : endpointMethod;
+        const detailPath =
+          typeof detailRaw.path === 'string' && detailRaw.path.trim()
+            ? detailRaw.path.trim()
+            : endpointPath;
+        const detailEndpoint =
+          typeof detailRaw.endpoint === 'string' && detailRaw.endpoint.trim()
+            ? detailRaw.endpoint.trim()
+            : detailMethod && detailPath
+              ? `${detailMethod} ${detailPath}`
+              : endpoint;
+        const requestId =
+          typeof detailRaw.request_id === 'string' && detailRaw.request_id.trim()
+            ? detailRaw.request_id.trim()
+            : undefined;
         details.push({
           timestamp,
           source: normalizeSource(detailRaw.source),
@@ -569,9 +588,10 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
           __modelName: modelName,
-          __endpoint: endpoint,
-          __endpointMethod: endpointMethod,
-          __endpointPath: endpointPath,
+          __endpoint: detailEndpoint,
+          __endpointMethod: detailMethod,
+          __endpointPath: detailPath,
+          __requestId: requestId,
           __timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         });
       });
