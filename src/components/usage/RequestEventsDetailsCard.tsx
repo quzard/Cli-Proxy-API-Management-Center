@@ -31,6 +31,8 @@ type RequestEventRow = {
   sourceType: string;
   authIndex: string;
   failed: boolean;
+  thinkingEffortRaw: string;
+  thinkingEffortLabel: string;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -59,6 +61,43 @@ const encodeCsv = (value: string | number): string => {
   const trimmedLeft = text.replace(/^\s+/, '');
   const safeText = trimmedLeft && /^[=+\-@]/.test(trimmedLeft) ? `'${text}` : text;
   return `"${safeText.replace(/"/g, '""')}"`;
+};
+
+const formatThinkingEffort = (
+  value: unknown,
+  t: ReturnType<typeof useTranslation>['t']
+): { raw: string; label: string } => {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!raw) {
+    return { raw: '', label: '-' };
+  }
+
+  const budgetMatch = raw.match(/^budget:(\d+)$/);
+  if (budgetMatch) {
+    return {
+      raw,
+      label: t('usage_stats.thinking_effort_budget', {
+        value: Number(budgetMatch[1]).toLocaleString()
+      })
+    };
+  }
+
+  const labelMap: Record<string, string> = {
+    none: t('usage_stats.thinking_effort_none'),
+    auto: t('usage_stats.thinking_effort_auto'),
+    enabled: t('usage_stats.thinking_effort_enabled'),
+    minimal: t('usage_stats.thinking_effort_minimal'),
+    low: t('usage_stats.thinking_effort_low'),
+    medium: t('usage_stats.thinking_effort_medium'),
+    high: t('usage_stats.thinking_effort_high'),
+    xhigh: t('usage_stats.thinking_effort_xhigh'),
+    max: t('usage_stats.thinking_effort_max')
+  };
+
+  return {
+    raw,
+    label: labelMap[raw] ?? raw
+  };
 };
 
 export function RequestEventsDetailsCard({
@@ -135,6 +174,7 @@ export function RequestEventsDetailsCard({
         const source = sourceInfo.displayName;
         const sourceType = sourceInfo.type;
         const model = String(detail.__modelName ?? '').trim() || '-';
+        const thinkingEffort = formatThinkingEffort(detail.thinking_effort, t);
         const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
         const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
         const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
@@ -158,6 +198,8 @@ export function RequestEventsDetailsCard({
           sourceType,
           authIndex,
           failed: detail.failed === true,
+          thinkingEffortRaw: thinkingEffort.raw,
+          thinkingEffortLabel: thinkingEffort.label,
           inputTokens,
           outputTokens,
           reasoningTokens,
@@ -166,7 +208,7 @@ export function RequestEventsDetailsCard({
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, i18n.language, sourceInfoMap, usage]);
+  }, [authFileMap, i18n.language, sourceInfoMap, t, usage]);
 
   const modelOptions = useMemo(
     () => [
@@ -258,6 +300,7 @@ export function RequestEventsDetailsCard({
       'source_raw',
       'auth_index',
       'result',
+      'thinking_effort',
       'input_tokens',
       'output_tokens',
       'reasoning_tokens',
@@ -273,6 +316,7 @@ export function RequestEventsDetailsCard({
         row.sourceRaw,
         row.authIndex,
         row.failed ? 'failed' : 'success',
+        row.thinkingEffortRaw,
         row.inputTokens,
         row.outputTokens,
         row.reasoningTokens,
@@ -301,6 +345,7 @@ export function RequestEventsDetailsCard({
       source_raw: row.sourceRaw,
       auth_index: row.authIndex,
       failed: row.failed,
+      thinking_effort: row.thinkingEffortRaw || null,
       tokens: {
         input_tokens: row.inputTokens,
         output_tokens: row.outputTokens,
@@ -427,6 +472,7 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_auth_index')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
+                  <th>{t('usage_stats.thinking_effort')}</th>
                   <th>{t('usage_stats.input_tokens')}</th>
                   <th>{t('usage_stats.output_tokens')}</th>
                   <th>{t('usage_stats.reasoning_tokens')}</th>
@@ -457,6 +503,7 @@ export function RequestEventsDetailsCard({
                         {row.failed ? t('stats.failure') : t('stats.success')}
                       </span>
                     </td>
+                    <td title={row.thinkingEffortLabel}>{row.thinkingEffortLabel}</td>
                     <td>{row.inputTokens.toLocaleString()}</td>
                     <td>{row.outputTokens.toLocaleString()}</td>
                     <td>{row.reasoningTokens.toLocaleString()}</td>

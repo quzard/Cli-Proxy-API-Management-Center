@@ -39,6 +39,7 @@ export interface UsageDetail {
   timestamp: string;
   source: string;
   auth_index: number;
+  thinking_effort?: string;
   tokens: {
     input_tokens: number;
     output_tokens: number;
@@ -496,6 +497,8 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
           timestamp,
           source: normalizeSource(detailRaw.source),
           auth_index: detailRaw.auth_index as unknown as number,
+          thinking_effort:
+            typeof detailRaw.thinking_effort === 'string' ? detailRaw.thinking_effort.trim() : undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
           __modelName: modelName,
@@ -585,6 +588,8 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
           timestamp,
           source: normalizeSource(detailRaw.source),
           auth_index: detailRaw.auth_index as unknown as number,
+          thinking_effort:
+            typeof detailRaw.thinking_effort === 'string' ? detailRaw.thinking_effort.trim() : undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
           __modelName: modelName,
