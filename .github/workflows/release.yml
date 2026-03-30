@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -25,13 +27,57 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Generate release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_sha="$(git rev-parse --short HEAD)"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+            release_name="${GITHUB_REF_NAME}"
+            build_version="${GITHUB_REF_NAME}"
+            current_tag="${GITHUB_REF_NAME}"
+            previous_tag="$(git tag --list 'v*' --sort=-v:refname | grep -v "^${current_tag}$" | head -n 1 || true)"
+            if [ -n "${previous_tag}" ]; then
+              range="${previous_tag}..${current_tag}"
+            else
+              range="${current_tag}"
+            fi
+          else
+            timestamp="$(date -u +%Y%m%d-%H%M%S)"
+            release_tag="main-${timestamp}-${short_sha}"
+            release_name="main-${short_sha}"
+            build_version="main-${short_sha}"
+            previous_commit="$(git rev-parse HEAD^ 2>/dev/null || true)"
+            if [ -n "${previous_commit}" ]; then
+              range="${previous_commit}..HEAD"
+            else
+              range="HEAD"
+            fi
+          fi
+
+          {
+            if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+              echo "Main branch snapshot for commit \`${short_sha}\`."
+              echo
+            fi
+            git log --pretty=format:"- %h %s" "${range}"
+          } > release-notes.md
+
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_name=${release_name}" >> "$GITHUB_OUTPUT"
+          echo "build_version=${build_version}" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build all-in-one HTML
         run: npm run build
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ steps.meta.outputs.build_version }}
 
       - name: Prepare release assets
         run: |
@@ -39,23 +85,11 @@ jobs:
           mv index.html management.html
           ls -lh management.html
 
-      - name: Generate release notes
-        run: |
-          set -euo pipefail
-          current_tag="${GITHUB_REF_NAME}"
-          previous_tag="$(git tag --list 'v*' --sort=-v:refname | grep -v "^${current_tag}$" | head -n 1 || true)"
-          if [ -n "${previous_tag}" ]; then
-            range="${previous_tag}..${current_tag}"
-          else
-            range="${current_tag}"
-          fi
-
-          : > release-notes.md
-          git log --pretty=format:"- %h %s" "${range}" >> release-notes.md
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          name: ${{ steps.meta.outputs.release_name }}
           files: dist/management.html
           body_path: release-notes.md
           draft: false
