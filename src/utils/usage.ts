@@ -33,6 +33,8 @@ export interface ModelPrice {
   prompt: number;
   completion: number;
   cache: number;
+  cacheRead?: number;
+  cacheCreation?: number;
 }
 
 export interface UsageDetail {
@@ -46,6 +48,8 @@ export interface UsageDetail {
     reasoning_tokens: number;
     cached_tokens: number;
     cache_tokens?: number;
+    cache_read_tokens?: number;
+    cache_creation_tokens?: number;
     total_tokens: number;
   };
   failed: boolean;
@@ -90,21 +94,21 @@ interface StoredModelPricePayload {
 }
 
 export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
-  'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5 },
-  'claude-opus-4.6': { prompt: 5, completion: 25, cache: 0.5 },
-  'claude-sonnet-4': { prompt: 3, completion: 15, cache: 0.3 },
-  'claude-3-5-sonnet': { prompt: 3, completion: 15, cache: 0.3 },
-  'claude-3-5-haiku': { prompt: 1, completion: 5, cache: 0.1 },
-  'claude-3-opus': { prompt: 15, completion: 75, cache: 1.5 },
-  'claude-3-haiku': { prompt: 0.25, completion: 1.25, cache: 0.03 },
-  'gpt-5.1': { prompt: 1.25, completion: 10, cache: 0.125 },
-  'gpt-5.2': { prompt: 1.75, completion: 14, cache: 0.175 },
-  'gpt-5.4': { prompt: 2.5, completion: 15, cache: 0.25 },
-  'gpt-5.4-mini': { prompt: 0.75, completion: 4.5, cache: 0.075 },
-  'gpt-5.4-nano': { prompt: 0.2, completion: 1.25, cache: 0.02 },
-  'gpt-5.1-codex': { prompt: 1.5, completion: 12, cache: 0.15 },
-  'gpt-5.2-codex': { prompt: 1.75, completion: 14, cache: 0.175 },
-  'gpt-5.3-codex': { prompt: 1.5, completion: 12, cache: 0.15 }
+  'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
+  'claude-opus-4.6': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
+  'claude-sonnet-4': { prompt: 3, completion: 15, cache: 0.3, cacheRead: 0.3, cacheCreation: 3.75 },
+  'claude-3-5-sonnet': { prompt: 3, completion: 15, cache: 0.3, cacheRead: 0.3, cacheCreation: 3.75 },
+  'claude-3-5-haiku': { prompt: 1, completion: 5, cache: 0.1, cacheRead: 0.1, cacheCreation: 1.25 },
+  'claude-3-opus': { prompt: 15, completion: 75, cache: 1.5, cacheRead: 1.5, cacheCreation: 18.75 },
+  'claude-3-haiku': { prompt: 0.25, completion: 1.25, cache: 0.03, cacheRead: 0.03, cacheCreation: 0.3 },
+  'gpt-5.1': { prompt: 1.25, completion: 10, cache: 0.125, cacheRead: 0.125, cacheCreation: 1.25 },
+  'gpt-5.2': { prompt: 1.75, completion: 14, cache: 0.175, cacheRead: 0.175, cacheCreation: 1.75 },
+  'gpt-5.4': { prompt: 2.5, completion: 15, cache: 0.25, cacheRead: 0.25, cacheCreation: 2.5 },
+  'gpt-5.4-mini': { prompt: 0.75, completion: 4.5, cache: 0.075, cacheRead: 0.075, cacheCreation: 0.75 },
+  'gpt-5.4-nano': { prompt: 0.2, completion: 1.25, cache: 0.02, cacheRead: 0.02, cacheCreation: 0.2 },
+  'gpt-5.1-codex': { prompt: 1.5, completion: 12, cache: 0.15, cacheRead: 0.15, cacheCreation: 1.5 },
+  'gpt-5.2-codex': { prompt: 1.75, completion: 14, cache: 0.175, cacheRead: 0.175, cacheCreation: 1.75 },
+  'gpt-5.3-codex': { prompt: 1.5, completion: 12, cache: 0.15, cacheRead: 0.15, cacheCreation: 1.5 }
 };
 
 const DEFAULT_MODEL_PRICE_KEYS = new Set(Object.keys(DEFAULT_MODEL_PRICES));
@@ -136,24 +140,46 @@ const normalizeModelPriceMap = (input: unknown): Record<string, ModelPrice> => {
     const promptRaw = Number(priceRecord?.prompt);
     const completionRaw = Number(priceRecord?.completion);
     const cacheRaw = Number(priceRecord?.cache);
+    const cacheReadRaw = Number(priceRecord?.cacheRead ?? priceRecord?.cache_read ?? priceRecord?.cache);
+    const cacheCreationRaw = Number(
+      priceRecord?.cacheCreation ??
+      priceRecord?.cache_creation ??
+      priceRecord?.cacheWrite ??
+      priceRecord?.cache_write
+    );
 
-    if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
+    if (
+      !Number.isFinite(promptRaw) &&
+      !Number.isFinite(completionRaw) &&
+      !Number.isFinite(cacheRaw) &&
+      !Number.isFinite(cacheReadRaw) &&
+      !Number.isFinite(cacheCreationRaw)
+    ) {
       return;
     }
 
     const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
     const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
-    const cache =
-      Number.isFinite(cacheRaw) && cacheRaw >= 0
-        ? cacheRaw
-        : Number.isFinite(promptRaw) && promptRaw >= 0
-          ? promptRaw
-          : prompt;
+    const cacheRead =
+      Number.isFinite(cacheReadRaw) && cacheReadRaw >= 0
+        ? cacheReadRaw
+        : Number.isFinite(cacheRaw) && cacheRaw >= 0
+          ? cacheRaw
+          : Number.isFinite(promptRaw) && promptRaw >= 0
+            ? promptRaw
+            : prompt;
+    const cacheCreation =
+      Number.isFinite(cacheCreationRaw) && cacheCreationRaw >= 0
+        ? cacheCreationRaw
+        : cacheRead;
+    const cache = Number.isFinite(cacheRaw) && cacheRaw >= 0 ? cacheRaw : cacheRead;
 
     normalized[model.trim()] = {
       prompt,
       completion,
-      cache
+      cache,
+      cacheRead,
+      cacheCreation
     };
   });
 
@@ -412,6 +438,58 @@ export function getModelPrice(
   const priceKey = resolveModelPriceKey(modelName, modelPrices);
   return priceKey ? modelPrices[priceKey] ?? null : null;
 }
+
+const getLegacyCachedTokens = (tokensRaw: unknown): number => {
+  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
+  return Math.max(
+    typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+    typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
+  );
+};
+
+const hasExplicitSplitCacheTokens = (tokensRaw: unknown): boolean => {
+  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
+  return typeof tokens.cache_read_tokens === 'number' || typeof tokens.cache_creation_tokens === 'number';
+};
+
+export function extractCacheReadTokens(tokensRaw: unknown): number {
+  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
+  if (typeof tokens.cache_read_tokens === 'number') {
+    return Math.max(tokens.cache_read_tokens, 0);
+  }
+  return getLegacyCachedTokens(tokens);
+}
+
+export function extractCacheCreationTokens(tokensRaw: unknown): number {
+  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
+  if (typeof tokens.cache_creation_tokens === 'number') {
+    return Math.max(tokens.cache_creation_tokens, 0);
+  }
+  return 0;
+}
+
+export function extractCachedTokensTotal(tokensRaw: unknown): number {
+  if (hasExplicitSplitCacheTokens(tokensRaw)) {
+    return extractCacheReadTokens(tokensRaw) + extractCacheCreationTokens(tokensRaw);
+  }
+  return getLegacyCachedTokens(tokensRaw);
+}
+
+const getCacheReadPrice = (price: ModelPrice): number => {
+  const raw = Number(price.cacheRead ?? price.cache);
+  if (Number.isFinite(raw) && raw >= 0) {
+    return raw;
+  }
+  return Number(price.prompt) || 0;
+};
+
+const getCacheCreationPrice = (price: ModelPrice): number => {
+  const raw = Number(price.cacheCreation ?? price.cacheRead ?? price.cache);
+  if (Number.isFinite(raw) && raw >= 0) {
+    return raw;
+  }
+  return Number(price.prompt) || 0;
+};
 
 const getApisRecord = (usageData: unknown): Record<string, unknown> | null => {
   const usageRecord = isRecord(usageData) ? usageData : null;
@@ -950,10 +1028,7 @@ export function extractTotalTokens(detail: unknown): number {
   const inputTokens = typeof tokens.input_tokens === 'number' ? tokens.input_tokens : 0;
   const outputTokens = typeof tokens.output_tokens === 'number' ? tokens.output_tokens : 0;
   const reasoningTokens = typeof tokens.reasoning_tokens === 'number' ? tokens.reasoning_tokens : 0;
-  const cachedTokens = Math.max(
-    typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-    typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
-  );
+  const cachedTokens = extractCachedTokensTotal(tokens);
 
   return inputTokens + outputTokens + reasoningTokens + cachedTokens;
 }
@@ -972,10 +1047,7 @@ export function calculateTokenBreakdown(usageData: unknown): TokenBreakdown {
 
   details.forEach((detail) => {
     const tokens = detail.tokens;
-    cachedTokens += Math.max(
-      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
-    );
+    cachedTokens += extractCachedTokensTotal(tokens);
     if (typeof tokens.reasoning_tokens === 'number') {
       reasoningTokens += tokens.reasoning_tokens;
     }
@@ -1049,6 +1121,7 @@ export function getModelNamesFromUsage(usageData: unknown): string[] {
  */
 export function calculateCost(detail: UsageDetail, modelPrices: Record<string, ModelPrice>): number {
   const modelName = detail.__modelName || '';
+  const priceKey = resolveModelPriceKey(modelName, modelPrices);
   const price = getModelPrice(modelName, modelPrices);
   if (!price) {
     return 0;
@@ -1056,21 +1129,21 @@ export function calculateCost(detail: UsageDetail, modelPrices: Record<string, M
   const tokens = detail.tokens;
   const rawInputTokens = Number(tokens.input_tokens);
   const rawCompletionTokens = Number(tokens.output_tokens);
-  const rawCachedTokensPrimary = Number(tokens.cached_tokens);
-  const rawCachedTokensAlternate = Number(tokens.cache_tokens);
 
   const inputTokens = Number.isFinite(rawInputTokens) ? Math.max(rawInputTokens, 0) : 0;
   const completionTokens = Number.isFinite(rawCompletionTokens) ? Math.max(rawCompletionTokens, 0) : 0;
-  const cachedTokens = Math.max(
-    Number.isFinite(rawCachedTokensPrimary) ? Math.max(rawCachedTokensPrimary, 0) : 0,
-    Number.isFinite(rawCachedTokensAlternate) ? Math.max(rawCachedTokensAlternate, 0) : 0
-  );
-  const promptTokens = Math.max(inputTokens - cachedTokens, 0);
+  const cacheReadTokens = extractCacheReadTokens(tokens);
+  const cacheCreationTokens = extractCacheCreationTokens(tokens);
+  const isClaudeModel = (priceKey ?? normalizeModelLookupCandidate(modelName)).startsWith('claude');
+  const promptTokens = isClaudeModel ? inputTokens : Math.max(inputTokens - cacheReadTokens, 0);
 
+  const cacheReadPrice = getCacheReadPrice(price);
+  const cacheCreationPrice = getCacheCreationPrice(price);
   const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.prompt) || 0);
-  const cachedCost = (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0);
+  const cacheReadCost = (cacheReadTokens / TOKENS_PER_PRICE_UNIT) * cacheReadPrice;
+  const cacheCreationCost = (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice;
   const completionCost = (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
-  const total = promptCost + cachedCost + completionCost;
+  const total = promptCost + cacheReadCost + cacheCreationCost + completionCost;
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
 
@@ -1941,10 +2014,7 @@ export function buildHourlyTokenBreakdown(
     const tokens = detail.tokens;
     const input = typeof tokens.input_tokens === 'number' ? Math.max(tokens.input_tokens, 0) : 0;
     const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
-    const cached = Math.max(
-      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0,
-    );
+    const cached = extractCachedTokensTotal(tokens);
     const reasoning = typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
 
     dataByCategory.input[bucketIndex] += input;
@@ -1979,10 +2049,7 @@ export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeri
     const tokens = detail.tokens;
     const input = typeof tokens.input_tokens === 'number' ? Math.max(tokens.input_tokens, 0) : 0;
     const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
-    const cached = Math.max(
-      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0,
-    );
+    const cached = extractCachedTokensTotal(tokens);
     const reasoning = typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
 
     dayMap[dayLabel].input += input;
