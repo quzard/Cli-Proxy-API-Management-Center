@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
-import type { ModelPrice } from '@/utils/usage';
+import { getModelPrice, resolveModelPriceKey, type ModelPrice } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
 
 export interface PriceSettingsCardProps {
@@ -33,12 +33,15 @@ export function PriceSettingsCard({
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
 
+  const getEditableModelKey = (model: string) => resolveModelPriceKey(model, modelPrices) || model;
+
   const handleSavePrice = () => {
     if (!selectedModel) return;
     const prompt = parseFloat(promptPrice) || 0;
     const completion = parseFloat(completionPrice) || 0;
     const cache = cachePrice.trim() === '' ? prompt : parseFloat(cachePrice) || 0;
-    const newPrices = { ...modelPrices, [selectedModel]: { prompt, completion, cache } };
+    const targetModel = getEditableModelKey(selectedModel);
+    const newPrices = { ...modelPrices, [targetModel]: { prompt, completion, cache } };
     onPricesChange(newPrices);
     setSelectedModel('');
     setPromptPrice('');
@@ -72,7 +75,7 @@ export function PriceSettingsCard({
 
   const handleModelSelect = (value: string) => {
     setSelectedModel(value);
-    const price = modelPrices[value];
+    const price = getModelPrice(value, modelPrices);
     if (price) {
       setPromptPrice(price.prompt.toString());
       setCompletionPrice(price.completion.toString());
@@ -90,6 +93,11 @@ export function PriceSettingsCard({
       ...modelNames.map((name) => ({ value: name, label: name }))
     ],
     [modelNames, t]
+  );
+
+  const savedPrices = useMemo(
+    () => Object.entries(modelPrices).sort(([left], [right]) => left.localeCompare(right)),
+    [modelPrices]
   );
 
   return (
@@ -146,9 +154,9 @@ export function PriceSettingsCard({
         {/* Saved Prices List */}
         <div className={styles.pricesList}>
           <h4 className={styles.pricesTitle}>{t('usage_stats.saved_prices')}</h4>
-          {Object.keys(modelPrices).length > 0 ? (
+          {savedPrices.length > 0 ? (
             <div className={styles.pricesGrid}>
-              {Object.entries(modelPrices).map(([model, price]) => (
+              {savedPrices.map(([model, price]) => (
                 <div key={model} className={styles.priceItem}>
                   <div className={styles.priceInfo}>
                     <span className={styles.priceModel}>{model}</span>

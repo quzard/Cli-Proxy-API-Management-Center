@@ -76,14 +76,342 @@ export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
 const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
+const OPENAI_MODEL_DATE_REGEX = /-\d{8}$/;
+const OPENAI_MODEL_BASE_REGEX = /^(gpt-\d+(?:\.\d+)?)(?:-|$)/;
 const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000
 };
 
+interface StoredModelPricePayload {
+  prices?: unknown;
+  disabledDefaultModels?: unknown;
+}
+
+export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
+  'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5 },
+  'claude-opus-4.6': { prompt: 5, completion: 25, cache: 0.5 },
+  'claude-sonnet-4': { prompt: 3, completion: 15, cache: 0.3 },
+  'claude-3-5-sonnet': { prompt: 3, completion: 15, cache: 0.3 },
+  'claude-3-5-haiku': { prompt: 1, completion: 5, cache: 0.1 },
+  'claude-3-opus': { prompt: 15, completion: 75, cache: 1.5 },
+  'claude-3-haiku': { prompt: 0.25, completion: 1.25, cache: 0.03 },
+  'gpt-5.1': { prompt: 1.25, completion: 10, cache: 0.125 },
+  'gpt-5.2': { prompt: 1.75, completion: 14, cache: 0.175 },
+  'gpt-5.4': { prompt: 2.5, completion: 15, cache: 0.25 },
+  'gpt-5.4-mini': { prompt: 0.75, completion: 4.5, cache: 0.075 },
+  'gpt-5.4-nano': { prompt: 0.2, completion: 1.25, cache: 0.02 },
+  'gpt-5.1-codex': { prompt: 1.5, completion: 12, cache: 0.15 },
+  'gpt-5.2-codex': { prompt: 1.75, completion: 14, cache: 0.175 },
+  'gpt-5.3-codex': { prompt: 1.5, completion: 12, cache: 0.15 }
+};
+
+const DEFAULT_MODEL_PRICE_KEYS = new Set(Object.keys(DEFAULT_MODEL_PRICES));
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const isStoredModelPricePayload = (value: unknown): value is StoredModelPricePayload =>
+  isRecord(value) && ('prices' in value || 'disabledDefaultModels' in value);
+
+const cloneDefaultModelPrices = (): Record<string, ModelPrice> =>
+  Object.fromEntries(
+    Object.entries(DEFAULT_MODEL_PRICES).map(([model, price]) => [
+      model,
+      { ...price }
+    ])
+  );
+
+const normalizeModelPriceMap = (input: unknown): Record<string, ModelPrice> => {
+  if (!isRecord(input)) {
+    return {};
+  }
+
+  const normalized: Record<string, ModelPrice> = {};
+  Object.entries(input).forEach(([model, price]) => {
+    if (!model) return;
+
+    const priceRecord = isRecord(price) ? price : null;
+    const promptRaw = Number(priceRecord?.prompt);
+    const completionRaw = Number(priceRecord?.completion);
+    const cacheRaw = Number(priceRecord?.cache);
+
+    if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
+      return;
+    }
+
+    const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
+    const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
+    const cache =
+      Number.isFinite(cacheRaw) && cacheRaw >= 0
+        ? cacheRaw
+        : Number.isFinite(promptRaw) && promptRaw >= 0
+          ? promptRaw
+          : prompt;
+
+    normalized[model.trim()] = {
+      prompt,
+      completion,
+      cache
+    };
+  });
+
+  return normalized;
+};
+
+const mergeModelPricesWithDefaults = (
+  prices: Record<string, ModelPrice>,
+  disabledDefaultModels: Iterable<string> = []
+): Record<string, ModelPrice> => {
+  const merged = cloneDefaultModelPrices();
+
+  for (const model of disabledDefaultModels) {
+    if (DEFAULT_MODEL_PRICE_KEYS.has(model)) {
+      delete merged[model];
+    }
+  }
+
+  Object.entries(prices).forEach(([model, price]) => {
+    merged[model] = { ...price };
+  });
+
+  return merged;
+};
+
+const normalizeModelLookupCandidate = (modelName: string): string => {
+  let normalized = modelName.trim().toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+
+  normalized = normalized.replace(/[\s_]+/g, '-');
+  normalized = normalized.replace(/^models\//, '');
+  normalized = normalized.replace(/^publishers\/google\/models\//, '');
+
+  const googleModelsIndex = normalized.lastIndexOf('/publishers/google/models/');
+  if (googleModelsIndex !== -1) {
+    normalized = normalized.slice(googleModelsIndex + '/publishers/google/models/'.length);
+  }
+
+  const modelsIndex = normalized.lastIndexOf('/models/');
+  if (modelsIndex !== -1) {
+    normalized = normalized.slice(modelsIndex + '/models/'.length);
+  }
+
+  const lastSlashIndex = normalized.lastIndexOf('/');
+  if (lastSlashIndex !== -1) {
+    normalized = normalized.slice(lastSlashIndex + 1);
+  }
+
+  return normalized;
+};
+
+const buildModelLookupCandidates = (modelName: string): string[] => {
+  const normalized = normalizeModelLookupCandidate(modelName);
+  const trimmed = modelName.trim().toLowerCase();
+  const candidates = [
+    normalized,
+    normalized
+      .replace(/-4-5(?=-|$)/g, '-4.5')
+      .replace(/-4-6(?=-|$)/g, '-4.6'),
+    trimmed,
+    trimmed.replace(/^models\//, ''),
+  ];
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  candidates.forEach((candidate) => {
+    const value = candidate.trim();
+    if (!value || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    result.push(value);
+  });
+
+  return result;
+};
+
+const extractBaseModelName = (model: string): string => {
+  const parts = model.split('-');
+  const result: string[] = [];
+
+  parts.forEach((part) => {
+    if (/^\d{8}$/.test(part)) {
+      return;
+    }
+    if (part.includes(':')) {
+      return;
+    }
+    result.push(part);
+  });
+
+  return result.join('-');
+};
+
+const matchClaudeBillingModel = (model: string): string | null => {
+  if (!model.includes('claude')) {
+    return null;
+  }
+
+  if (model.includes('opus')) {
+    if (model.includes('4.6') || model.includes('4-6')) {
+      return 'claude-opus-4.6';
+    }
+    if (model.includes('4.5') || model.includes('4-5')) {
+      return 'claude-opus-4.5';
+    }
+    return 'claude-3-opus';
+  }
+
+  if (model.includes('sonnet')) {
+    if (model.includes('4.5') || model.includes('4-5')) {
+      return 'claude-sonnet-4';
+    }
+    if (model.includes('4') && !model.includes('3')) {
+      return 'claude-sonnet-4';
+    }
+    if (model.includes('3.5') || model.includes('3-5')) {
+      return 'claude-3-5-sonnet';
+    }
+    return 'claude-3-5-sonnet';
+  }
+
+  if (model.includes('haiku')) {
+    if (model.includes('4.5') || model.includes('4-5')) {
+      return 'claude-3-5-haiku';
+    }
+    if (model.includes('3.5') || model.includes('3-5')) {
+      return 'claude-3-5-haiku';
+    }
+    return 'claude-3-haiku';
+  }
+
+  return 'claude-sonnet-4';
+};
+
+const generateOpenAIModelVariants = (model: string): string[] => {
+  const variants: string[] = [];
+  const seen = new Set<string>();
+
+  const addVariant = (value: string) => {
+    if (!value || value === model || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    variants.push(value);
+  };
+
+  const withoutDate = model.replace(OPENAI_MODEL_DATE_REGEX, '');
+  if (withoutDate !== model) {
+    addVariant(withoutDate);
+  }
+
+  const baseMatch = model.match(OPENAI_MODEL_BASE_REGEX);
+  if (baseMatch?.[1]) {
+    addVariant(baseMatch[1]);
+  }
+
+  if (withoutDate !== model) {
+    const baseWithoutDateMatch = withoutDate.match(OPENAI_MODEL_BASE_REGEX);
+    if (baseWithoutDateMatch?.[1]) {
+      addVariant(baseWithoutDateMatch[1]);
+    }
+  }
+
+  return variants;
+};
+
+const matchOpenAIBillingModel = (model: string): string | null => {
+  if (!model.includes('gpt-5') && !model.includes('codex')) {
+    return null;
+  }
+
+  if (model.startsWith('gpt-5.3-codex-spark')) {
+    return 'gpt-5.1-codex';
+  }
+
+  if (
+    model === 'codex-mini-latest' ||
+    model.startsWith('gpt-5.1-codex') ||
+    model.startsWith('gpt-5.1-codex-max') ||
+    model.startsWith('gpt-5.1-codex-mini')
+  ) {
+    return 'gpt-5.1-codex';
+  }
+
+  for (const variant of generateOpenAIModelVariants(model)) {
+    if (DEFAULT_MODEL_PRICE_KEYS.has(variant)) {
+      return variant;
+    }
+  }
+
+  if (model.startsWith('gpt-5.3-codex')) {
+    return 'gpt-5.2-codex';
+  }
+
+  if (model.startsWith('gpt-5.4-mini')) {
+    return 'gpt-5.4-mini';
+  }
+
+  if (model.startsWith('gpt-5.4-nano')) {
+    return 'gpt-5.4-nano';
+  }
+
+  if (model.startsWith('gpt-5.4')) {
+    return 'gpt-5.4';
+  }
+
+  return 'gpt-5.1-codex';
+};
+
+export function resolveModelPriceKey(
+  modelName: string,
+  modelPrices: Record<string, ModelPrice>
+): string | null {
+  if (!modelName || !Object.keys(modelPrices).length) {
+    return null;
+  }
+
+  const candidates = buildModelLookupCandidates(modelName);
+
+  for (const candidate of candidates) {
+    if (candidate in modelPrices) {
+      return candidate;
+    }
+  }
+
+  for (const candidate of candidates) {
+    const baseName = extractBaseModelName(candidate);
+    if (baseName && baseName in modelPrices) {
+      return baseName;
+    }
+  }
+
+  for (const candidate of candidates) {
+    const claudeMatch = matchClaudeBillingModel(candidate);
+    if (claudeMatch && claudeMatch in modelPrices) {
+      return claudeMatch;
+    }
+
+    const openAIMatch = matchOpenAIBillingModel(candidate);
+    if (openAIMatch && openAIMatch in modelPrices) {
+      return openAIMatch;
+    }
+  }
+
+  return null;
+}
+
+export function getModelPrice(
+  modelName: string,
+  modelPrices: Record<string, ModelPrice>
+): ModelPrice | null {
+  const priceKey = resolveModelPriceKey(modelName, modelPrices);
+  return priceKey ? modelPrices[priceKey] ?? null : null;
+}
 
 const getApisRecord = (usageData: unknown): Record<string, unknown> | null => {
   const usageRecord = isRecord(usageData) ? usageData : null;
@@ -721,7 +1049,7 @@ export function getModelNamesFromUsage(usageData: unknown): string[] {
  */
 export function calculateCost(detail: UsageDetail, modelPrices: Record<string, ModelPrice>): number {
   const modelName = detail.__modelName || '';
-  const price = modelPrices[modelName];
+  const price = getModelPrice(modelName, modelPrices);
   if (!price) {
     return 0;
   }
@@ -763,46 +1091,25 @@ export function calculateTotalCost(usageData: unknown, modelPrices: Record<strin
 export function loadModelPrices(): Record<string, ModelPrice> {
   try {
     if (typeof localStorage === 'undefined') {
-      return {};
+      return cloneDefaultModelPrices();
     }
     const raw = localStorage.getItem(MODEL_PRICE_STORAGE_KEY);
     if (!raw) {
-      return {};
+      return cloneDefaultModelPrices();
     }
+
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) {
-      return {};
+    if (isStoredModelPricePayload(parsed)) {
+      const prices = normalizeModelPriceMap(parsed.prices);
+      const disabledDefaultModels = Array.isArray(parsed.disabledDefaultModels)
+        ? parsed.disabledDefaultModels.filter((item): item is string => typeof item === 'string')
+        : [];
+      return mergeModelPricesWithDefaults(prices, disabledDefaultModels);
     }
-    const normalized: Record<string, ModelPrice> = {};
-    Object.entries(parsed).forEach(([model, price]: [string, unknown]) => {
-      if (!model) return;
-      const priceRecord = isRecord(price) ? price : null;
-      const promptRaw = Number(priceRecord?.prompt);
-      const completionRaw = Number(priceRecord?.completion);
-      const cacheRaw = Number(priceRecord?.cache);
 
-      if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
-        return;
-      }
-
-      const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
-      const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
-      const cache =
-        Number.isFinite(cacheRaw) && cacheRaw >= 0
-          ? cacheRaw
-          : Number.isFinite(promptRaw) && promptRaw >= 0
-            ? promptRaw
-            : prompt;
-
-      normalized[model] = {
-        prompt,
-        completion,
-        cache
-      };
-    });
-    return normalized;
+    return mergeModelPricesWithDefaults(normalizeModelPriceMap(parsed));
   } catch {
-    return {};
+    return cloneDefaultModelPrices();
   }
 }
 
@@ -814,7 +1121,17 @@ export function saveModelPrices(prices: Record<string, ModelPrice>): void {
     if (typeof localStorage === 'undefined') {
       return;
     }
-    localStorage.setItem(MODEL_PRICE_STORAGE_KEY, JSON.stringify(prices));
+    const normalized = normalizeModelPriceMap(prices);
+    const disabledDefaultModels = Object.keys(DEFAULT_MODEL_PRICES).filter(
+      (model) => !(model in normalized)
+    );
+    localStorage.setItem(
+      MODEL_PRICE_STORAGE_KEY,
+      JSON.stringify({
+        prices: normalized,
+        disabledDefaultModels
+      })
+    );
   } catch {
     console.warn('保存模型价格失败');
   }
@@ -849,7 +1166,7 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
         failureCount += Number(modelData.failure_count) || 0;
       }
 
-      const price = modelPrices[modelName];
+      const price = getModelPrice(modelName, modelPrices);
       if (details.length > 0 && (!hasExplicitCounts || price)) {
         details.forEach((detail) => {
           const detailRecord = isRecord(detail) ? detail : null;
@@ -933,7 +1250,7 @@ export function getModelStats(usageData: unknown, modelPrices: Record<string, Mo
 
       const details = Array.isArray(modelData.details) ? modelData.details : [];
 
-      const price = modelPrices[modelName];
+      const price = getModelPrice(modelName, modelPrices);
 
       const hasExplicitCounts =
         typeof modelData.success_count === 'number' || typeof modelData.failure_count === 'number';
