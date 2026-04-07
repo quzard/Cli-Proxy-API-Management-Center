@@ -3,7 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { USAGE_STATS_STALE_TIME_MS, useNotificationStore, useUsageStatsStore } from '@/stores';
 import { usageApi } from '@/services/api/usage';
 import { downloadBlob } from '@/utils/download';
-import { loadModelPrices, saveModelPrices, type ModelPrice } from '@/utils/usage';
+import {
+  createSharedModelPricesPayload,
+  getDefaultModelPrices,
+  mergeModelPricesWithDefaults,
+  normalizeSharedModelPrices,
+  type ModelPrice
+} from '@/utils/usage';
 
 export interface UsagePayload {
   total_requests?: number;
@@ -39,9 +45,12 @@ export function useUsageData(): UseUsageDataReturn {
   const lastRefreshedAtTs = useUsageStatsStore((state) => state.lastRefreshedAt);
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
 
-  const [modelPrices, setModelPrices] = useState<Record<string, ModelPrice>>(() => loadModelPrices());
+  const [modelPrices, setModelPrices] = useState<Record<string, ModelPrice>>(() =>
+    getDefaultModelPrices()
+  );
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [loadingModelPrices, setLoadingModelPrices] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadUsage = useCallback(async () => {
@@ -51,6 +60,46 @@ export function useUsageData(): UseUsageDataReturn {
   useEffect(() => {
     void loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS }).catch(() => {});
   }, [loadUsageStats]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSharedModelPrices = async () => {
+      setLoadingModelPrices(true);
+      try {
+        const sharedPricing = await usageApi.getUsageModelPrices();
+        if (cancelled) {
+          return;
+        }
+        setModelPrices(
+          mergeModelPricesWithDefaults(
+            normalizeSharedModelPrices(sharedPricing.prices),
+            sharedPricing.disabledDefaultModels
+          )
+        );
+      } catch (err: unknown) {
+        if (cancelled) {
+          return;
+        }
+        const message = err instanceof Error ? err.message : '';
+        showNotification(
+          `${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`,
+          'error'
+        );
+        setModelPrices(getDefaultModelPrices());
+      } finally {
+        if (!cancelled) {
+          setLoadingModelPrices(false);
+        }
+      }
+    };
+
+    void loadSharedModelPrices();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showNotification, t]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -129,17 +178,36 @@ export function useUsageData(): UseUsageDataReturn {
   };
 
   const handleSetModelPrices = useCallback((prices: Record<string, ModelPrice>) => {
-    setModelPrices(prices);
-    saveModelPrices(prices);
-  }, []);
+    const previousPrices = modelPrices;
+    const payload = createSharedModelPricesPayload(prices);
+    const mergedPrices = mergeModelPricesWithDefaults(
+      payload.prices,
+      payload.disabledDefaultModels
+    );
+    setModelPrices(mergedPrices);
+    setLoadingModelPrices(true);
+
+    void usageApi.updateUsageModelPrices(payload)
+      .catch((err: unknown) => {
+        setModelPrices(previousPrices);
+        const message = err instanceof Error ? err.message : '';
+        showNotification(
+          `${t('notification.update_failed')}${message ? `: ${message}` : ''}`,
+          'error'
+        );
+      })
+      .finally(() => {
+        setLoadingModelPrices(false);
+      });
+  }, [modelPrices, showNotification, t]);
 
   const usage = usageSnapshot as UsagePayload | null;
-  const error = storeError || '';
+  const error = loadingModelPrices ? '' : storeError || '';
   const lastRefreshedAt = lastRefreshedAtTs ? new Date(lastRefreshedAtTs) : null;
 
   return {
     usage,
-    loading,
+    loading: loading || loadingModelPrices,
     error,
     lastRefreshedAt,
     modelPrices,

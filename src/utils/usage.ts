@@ -37,6 +37,11 @@ export interface ModelPrice {
   cacheCreation?: number;
 }
 
+export interface SharedModelPricesPayload {
+  prices: Record<string, ModelPrice>;
+  disabledDefaultModels: string[];
+}
+
 export interface UsageDetail {
   timestamp: string;
   source: string;
@@ -78,7 +83,6 @@ export interface ApiStats {
 export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
 
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
-const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
 const OPENAI_MODEL_DATE_REGEX = /-\d{8}$/;
 const OPENAI_MODEL_BASE_REGEX = /^(gpt-\d+(?:\.\d+)?)(?:-|$)/;
@@ -87,11 +91,6 @@ const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000
 };
-
-interface StoredModelPricePayload {
-  prices?: unknown;
-  disabledDefaultModels?: unknown;
-}
 
 export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
   'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
@@ -115,9 +114,6 @@ const DEFAULT_MODEL_PRICE_KEYS = new Set(Object.keys(DEFAULT_MODEL_PRICES));
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const isStoredModelPricePayload = (value: unknown): value is StoredModelPricePayload =>
-  isRecord(value) && ('prices' in value || 'disabledDefaultModels' in value);
 
 const cloneDefaultModelPrices = (): Record<string, ModelPrice> =>
   Object.fromEntries(
@@ -186,16 +182,18 @@ const normalizeModelPriceMap = (input: unknown): Record<string, ModelPrice> => {
   return normalized;
 };
 
-const mergeModelPricesWithDefaults = (
+export const mergeModelPricesWithDefaults = (
   prices: Record<string, ModelPrice>,
   disabledDefaultModels: Iterable<string> = []
 ): Record<string, ModelPrice> => {
   const merged = cloneDefaultModelPrices();
 
   for (const model of disabledDefaultModels) {
-    if (DEFAULT_MODEL_PRICE_KEYS.has(model)) {
-      delete merged[model];
+    const normalizedModel = model.trim();
+    if (!normalizedModel) {
+      continue;
     }
+    delete merged[normalizedModel];
   }
 
   Object.entries(prices).forEach(([model, price]) => {
@@ -1158,56 +1156,25 @@ export function calculateTotalCost(usageData: unknown, modelPrices: Record<strin
   return details.reduce((sum, detail) => sum + calculateCost(detail, modelPrices), 0);
 }
 
-/**
- * 从 localStorage 加载模型价格
- */
-export function loadModelPrices(): Record<string, ModelPrice> {
-  try {
-    if (typeof localStorage === 'undefined') {
-      return cloneDefaultModelPrices();
-    }
-    const raw = localStorage.getItem(MODEL_PRICE_STORAGE_KEY);
-    if (!raw) {
-      return cloneDefaultModelPrices();
-    }
-
-    const parsed: unknown = JSON.parse(raw);
-    if (isStoredModelPricePayload(parsed)) {
-      const prices = normalizeModelPriceMap(parsed.prices);
-      const disabledDefaultModels = Array.isArray(parsed.disabledDefaultModels)
-        ? parsed.disabledDefaultModels.filter((item): item is string => typeof item === 'string')
-        : [];
-      return mergeModelPricesWithDefaults(prices, disabledDefaultModels);
-    }
-
-    return mergeModelPricesWithDefaults(normalizeModelPriceMap(parsed));
-  } catch {
-    return cloneDefaultModelPrices();
-  }
+export function getDefaultModelPrices(): Record<string, ModelPrice> {
+  return cloneDefaultModelPrices();
 }
 
-/**
- * 保存模型价格到 localStorage
- */
-export function saveModelPrices(prices: Record<string, ModelPrice>): void {
-  try {
-    if (typeof localStorage === 'undefined') {
-      return;
-    }
-    const normalized = normalizeModelPriceMap(prices);
-    const disabledDefaultModels = Object.keys(DEFAULT_MODEL_PRICES).filter(
-      (model) => !(model in normalized)
-    );
-    localStorage.setItem(
-      MODEL_PRICE_STORAGE_KEY,
-      JSON.stringify({
-        prices: normalized,
-        disabledDefaultModels
-      })
-    );
-  } catch {
-    console.warn('保存模型价格失败');
-  }
+export function normalizeSharedModelPrices(input: unknown): Record<string, ModelPrice> {
+  return normalizeModelPriceMap(input);
+}
+
+export function createSharedModelPricesPayload(
+  prices: Record<string, ModelPrice>
+): SharedModelPricesPayload {
+  const normalizedPrices = normalizeModelPriceMap(prices);
+  const disabledDefaultModels = Object.keys(DEFAULT_MODEL_PRICES).filter(
+    (model) => !(model in normalizedPrices)
+  );
+  return {
+    prices: normalizedPrices,
+    disabledDefaultModels
+  };
 }
 
 /**

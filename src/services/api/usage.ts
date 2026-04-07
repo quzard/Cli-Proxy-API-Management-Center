@@ -3,7 +3,12 @@
  */
 
 import { apiClient } from './client';
-import { computeKeyStats, KeyStats } from '@/utils/usage';
+import {
+  computeKeyStats,
+  type KeyStats,
+  type ModelPrice,
+  type SharedModelPricesPayload
+} from '@/utils/usage';
 
 const USAGE_TIMEOUT_MS = 60 * 1000;
 
@@ -19,6 +24,14 @@ export interface UsageImportResponse {
   skipped?: number;
   total_requests?: number;
   failed_requests?: number;
+  [key: string]: unknown;
+}
+
+export interface UsageModelPricesResponse {
+  'usage-model-prices'?: Record<string, ModelPrice>;
+  usageModelPrices?: Record<string, ModelPrice>;
+  'disabled-default-models'?: string[];
+  disabledDefaultModels?: string[];
   [key: string]: unknown;
 }
 
@@ -38,6 +51,36 @@ export const usageApi = {
    */
   importUsage: (payload: unknown) =>
     apiClient.post<UsageImportResponse>('/usage/import', payload, { timeout: USAGE_TIMEOUT_MS }),
+
+  /**
+   * 获取共享模型价格
+   */
+  async getUsageModelPrices(): Promise<SharedModelPricesPayload> {
+    const data = await apiClient.get<UsageModelPricesResponse>('/usage-model-prices', {
+      timeout: USAGE_TIMEOUT_MS
+    });
+    return {
+      prices: (data?.['usage-model-prices'] ?? data?.usageModelPrices ?? {}) as Record<string, ModelPrice>,
+      disabledDefaultModels: Array.isArray(data?.['disabled-default-models'])
+        ? (data?.['disabled-default-models'] as string[])
+        : Array.isArray(data?.disabledDefaultModels)
+          ? (data?.disabledDefaultModels as string[])
+          : []
+    };
+  },
+
+  /**
+   * 更新共享模型价格
+   */
+  updateUsageModelPrices: (payload: SharedModelPricesPayload) =>
+    apiClient.put(
+      '/usage-model-prices',
+      {
+        value: payload.prices,
+        disabledDefaultModels: payload.disabledDefaultModels
+      },
+      { timeout: USAGE_TIMEOUT_MS }
+    ),
 
   /**
    * 计算密钥成功/失败统计，必要时会先获取 usage 数据
