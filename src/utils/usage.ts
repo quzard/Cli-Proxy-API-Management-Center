@@ -47,12 +47,16 @@ export interface RateStats {
   tokenCount: number;
 }
 
-export interface ModelPrice {
+export interface ModelPriceTier {
   prompt: number;
   completion: number;
   cache: number;
   cacheRead?: number;
   cacheCreation?: number;
+}
+
+export interface ModelPrice extends ModelPriceTier {
+  priority?: ModelPriceTier;
 }
 
 export interface SharedModelPricesPayload {
@@ -65,6 +69,7 @@ export interface UsageDetail {
   source: string;
   auth_index: string | number | null;
   thinking_effort?: string;
+  service_tier?: string;
   latency_ms?: number;
   tokens: {
     input_tokens: number;
@@ -126,13 +131,41 @@ const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7d': 7 * 24 * 60 * 60 * 1000,
 };
 
-const openAIModelPrice = (prompt: number, completion: number, cacheRead = 0): ModelPrice => ({
+const openAIModelPriceTier = (
+  prompt: number,
+  completion: number,
+  cacheRead = 0
+): ModelPriceTier => ({
   prompt,
   completion,
   cache: cacheRead,
   cacheRead,
   cacheCreation: prompt,
 });
+
+const openAIModelPrice = (
+  prompt: number,
+  completion: number,
+  cacheRead = 0,
+  priority?: ModelPriceTier
+): ModelPrice => ({
+  ...openAIModelPriceTier(prompt, completion, cacheRead),
+  ...(priority ? { priority } : {}),
+});
+
+const GPT_5_5_PRIORITY = openAIModelPriceTier(12.5, 75, 1.25);
+const GPT_5_4_PRIORITY = openAIModelPriceTier(5, 30, 0.5);
+const GPT_5_4_MINI_PRIORITY = openAIModelPriceTier(1.5, 9, 0.15);
+const GPT_5_2_PRIORITY = openAIModelPriceTier(3.5, 28, 0.35);
+const GPT_5_1_PRIORITY = openAIModelPriceTier(2.5, 20, 0.25);
+const GPT_5_PRIORITY = openAIModelPriceTier(2.5, 20, 0.25);
+const GPT_5_MINI_PRIORITY = openAIModelPriceTier(0.45, 3.6, 0.045);
+const GPT_4_1_PRIORITY = openAIModelPriceTier(3.5, 14, 0.875);
+const GPT_4_1_MINI_PRIORITY = openAIModelPriceTier(0.7, 2.8, 0.175);
+const GPT_4_1_NANO_PRIORITY = openAIModelPriceTier(0.2, 0.8, 0.05);
+const GPT_4O_PRIORITY = openAIModelPriceTier(4.25, 17, 2.125);
+const GPT_4O_2024_05_13_PRIORITY = openAIModelPriceTier(8.75, 26.25);
+const GPT_4O_MINI_PRIORITY = openAIModelPriceTier(0.25, 1, 0.125);
 
 export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
   'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
@@ -154,37 +187,37 @@ export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
     cacheRead: 0.03,
     cacheCreation: 0.3,
   },
-  'gpt-5.5': openAIModelPrice(5, 30, 0.5),
+  'gpt-5.5': openAIModelPrice(5, 30, 0.5, GPT_5_5_PRIORITY),
   'gpt-5.5-pro': openAIModelPrice(30, 180),
-  'gpt-5.4': openAIModelPrice(2.5, 15, 0.25),
-  'gpt-5.4-mini': openAIModelPrice(0.75, 4.5, 0.075),
+  'gpt-5.4': openAIModelPrice(2.5, 15, 0.25, GPT_5_4_PRIORITY),
+  'gpt-5.4-mini': openAIModelPrice(0.75, 4.5, 0.075, GPT_5_4_MINI_PRIORITY),
   'gpt-5.4-nano': openAIModelPrice(0.2, 1.25, 0.02),
   'gpt-5.4-pro': openAIModelPrice(30, 180),
   'gpt-5.3-chat-latest': openAIModelPrice(1.75, 14, 0.175),
   'gpt-5.3-codex': openAIModelPrice(1.75, 14, 0.175),
-  'gpt-5.2': openAIModelPrice(1.75, 14, 0.175),
+  'gpt-5.2': openAIModelPrice(1.75, 14, 0.175, GPT_5_2_PRIORITY),
   'gpt-5.2-pro': openAIModelPrice(21, 168),
-  'gpt-5.2-chat-latest': openAIModelPrice(1.75, 14, 0.175),
-  'gpt-5.2-codex': openAIModelPrice(1.75, 14, 0.175),
-  'gpt-5.1': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5.1-chat-latest': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5.1-codex-max': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5.1-codex': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5.2-chat-latest': openAIModelPrice(1.75, 14, 0.175, GPT_5_2_PRIORITY),
+  'gpt-5.2-codex': openAIModelPrice(1.75, 14, 0.175, GPT_5_2_PRIORITY),
+  'gpt-5.1': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
+  'gpt-5.1-chat-latest': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
+  'gpt-5.1-codex-max': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
+  'gpt-5.1-codex': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
   'gpt-5.1-codex-mini': openAIModelPrice(0.25, 2, 0.025),
-  'gpt-5': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5-chat-latest': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5-codex': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5-search-api': openAIModelPrice(1.25, 10, 0.125),
-  'gpt-5-mini': openAIModelPrice(0.25, 2, 0.025),
+  'gpt-5': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
+  'gpt-5-chat-latest': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
+  'gpt-5-codex': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
+  'gpt-5-search-api': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
+  'gpt-5-mini': openAIModelPrice(0.25, 2, 0.025, GPT_5_MINI_PRIORITY),
   'gpt-5-nano': openAIModelPrice(0.05, 0.4, 0.005),
   'gpt-5-pro': openAIModelPrice(15, 120),
   'chatgpt-4o-latest': openAIModelPrice(5, 15),
-  'gpt-4.1': openAIModelPrice(2, 8, 0.5),
-  'gpt-4.1-mini': openAIModelPrice(0.4, 1.6, 0.1),
-  'gpt-4.1-nano': openAIModelPrice(0.1, 0.4, 0.025),
-  'gpt-4o': openAIModelPrice(2.5, 10, 1.25),
-  'gpt-4o-2024-05-13': openAIModelPrice(5, 15),
-  'gpt-4o-mini': openAIModelPrice(0.15, 0.6, 0.075),
+  'gpt-4.1': openAIModelPrice(2, 8, 0.5, GPT_4_1_PRIORITY),
+  'gpt-4.1-mini': openAIModelPrice(0.4, 1.6, 0.1, GPT_4_1_MINI_PRIORITY),
+  'gpt-4.1-nano': openAIModelPrice(0.1, 0.4, 0.025, GPT_4_1_NANO_PRIORITY),
+  'gpt-4o': openAIModelPrice(2.5, 10, 1.25, GPT_4O_PRIORITY),
+  'gpt-4o-2024-05-13': openAIModelPrice(5, 15, 0, GPT_4O_2024_05_13_PRIORITY),
+  'gpt-4o-mini': openAIModelPrice(0.15, 0.6, 0.075, GPT_4O_MINI_PRIORITY),
   'gpt-4o-search-preview': openAIModelPrice(2.5, 10),
   'gpt-4o-mini-search-preview': openAIModelPrice(0.15, 0.6),
   'gpt-4-turbo-2024-04-09': openAIModelPrice(10, 30),
@@ -209,10 +242,65 @@ const DEFAULT_MODEL_PRICE_KEYS = new Set(Object.keys(DEFAULT_MODEL_PRICES));
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+const cloneModelPriceTier = (price: ModelPriceTier): ModelPriceTier => ({ ...price });
+
+const cloneModelPrice = (price: ModelPrice): ModelPrice => ({
+  ...price,
+  ...(price.priority ? { priority: cloneModelPriceTier(price.priority) } : {}),
+});
+
 const cloneDefaultModelPrices = (): Record<string, ModelPrice> =>
   Object.fromEntries(
-    Object.entries(DEFAULT_MODEL_PRICES).map(([model, price]) => [model, { ...price }])
+    Object.entries(DEFAULT_MODEL_PRICES).map(([model, price]) => [model, cloneModelPrice(price)])
   );
+
+const normalizeModelPriceTier = (input: unknown): ModelPriceTier | null => {
+  const priceRecord = isRecord(input) ? input : null;
+  const promptRaw = Number(priceRecord?.prompt);
+  const completionRaw = Number(priceRecord?.completion);
+  const cacheRaw = Number(priceRecord?.cache);
+  const cacheReadRaw = Number(
+    priceRecord?.cacheRead ?? priceRecord?.cache_read ?? priceRecord?.cache
+  );
+  const cacheCreationRaw = Number(
+    priceRecord?.cacheCreation ??
+      priceRecord?.cache_creation ??
+      priceRecord?.cacheWrite ??
+      priceRecord?.cache_write
+  );
+
+  if (
+    !Number.isFinite(promptRaw) &&
+    !Number.isFinite(completionRaw) &&
+    !Number.isFinite(cacheRaw) &&
+    !Number.isFinite(cacheReadRaw) &&
+    !Number.isFinite(cacheCreationRaw)
+  ) {
+    return null;
+  }
+
+  const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
+  const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
+  const cacheRead =
+    Number.isFinite(cacheReadRaw) && cacheReadRaw >= 0
+      ? cacheReadRaw
+      : Number.isFinite(cacheRaw) && cacheRaw >= 0
+        ? cacheRaw
+        : Number.isFinite(promptRaw) && promptRaw >= 0
+          ? promptRaw
+          : prompt;
+  const cacheCreation =
+    Number.isFinite(cacheCreationRaw) && cacheCreationRaw >= 0 ? cacheCreationRaw : cacheRead;
+  const cache = Number.isFinite(cacheRaw) && cacheRaw >= 0 ? cacheRaw : cacheRead;
+
+  return {
+    prompt,
+    completion,
+    cache,
+    cacheRead,
+    cacheCreation,
+  };
+};
 
 const normalizeModelPriceMap = (input: unknown): Record<string, ModelPrice> => {
   if (!isRecord(input)) {
@@ -224,50 +312,13 @@ const normalizeModelPriceMap = (input: unknown): Record<string, ModelPrice> => {
     if (!model) return;
 
     const priceRecord = isRecord(price) ? price : null;
-    const promptRaw = Number(priceRecord?.prompt);
-    const completionRaw = Number(priceRecord?.completion);
-    const cacheRaw = Number(priceRecord?.cache);
-    const cacheReadRaw = Number(
-      priceRecord?.cacheRead ?? priceRecord?.cache_read ?? priceRecord?.cache
-    );
-    const cacheCreationRaw = Number(
-      priceRecord?.cacheCreation ??
-        priceRecord?.cache_creation ??
-        priceRecord?.cacheWrite ??
-        priceRecord?.cache_write
-    );
-
-    if (
-      !Number.isFinite(promptRaw) &&
-      !Number.isFinite(completionRaw) &&
-      !Number.isFinite(cacheRaw) &&
-      !Number.isFinite(cacheReadRaw) &&
-      !Number.isFinite(cacheCreationRaw)
-    ) {
+    const normalizedTier = normalizeModelPriceTier(priceRecord);
+    if (!normalizedTier) {
       return;
     }
+    const priority = normalizeModelPriceTier(priceRecord?.priority);
 
-    const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
-    const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
-    const cacheRead =
-      Number.isFinite(cacheReadRaw) && cacheReadRaw >= 0
-        ? cacheReadRaw
-        : Number.isFinite(cacheRaw) && cacheRaw >= 0
-          ? cacheRaw
-          : Number.isFinite(promptRaw) && promptRaw >= 0
-            ? promptRaw
-            : prompt;
-    const cacheCreation =
-      Number.isFinite(cacheCreationRaw) && cacheCreationRaw >= 0 ? cacheCreationRaw : cacheRead;
-    const cache = Number.isFinite(cacheRaw) && cacheRaw >= 0 ? cacheRaw : cacheRead;
-
-    normalized[model.trim()] = {
-      prompt,
-      completion,
-      cache,
-      cacheRead,
-      cacheCreation,
-    };
+    normalized[model.trim()] = priority ? { ...normalizedTier, priority } : { ...normalizedTier };
   });
 
   return normalized;
@@ -288,7 +339,7 @@ export const mergeModelPricesWithDefaults = (
   }
 
   Object.entries(prices).forEach(([model, price]) => {
-    merged[model] = { ...price };
+    merged[model] = cloneModelPrice(price);
   });
 
   return merged;
@@ -595,7 +646,7 @@ export function extractCachedTokensTotal(tokensRaw: unknown): number {
   return getLegacyCachedTokens(tokensRaw);
 }
 
-const getCacheReadPrice = (price: ModelPrice): number => {
+const getCacheReadPrice = (price: ModelPriceTier): number => {
   const raw = Number(price.cacheRead ?? price.cache);
   if (Number.isFinite(raw) && raw >= 0) {
     return raw;
@@ -603,13 +654,43 @@ const getCacheReadPrice = (price: ModelPrice): number => {
   return Number(price.prompt) || 0;
 };
 
-const getCacheCreationPrice = (price: ModelPrice): number => {
+const getCacheCreationPrice = (price: ModelPriceTier): number => {
   const raw = Number(price.cacheCreation ?? price.cacheRead ?? price.cache);
   if (Number.isFinite(raw) && raw >= 0) {
     return raw;
   }
   return Number(price.prompt) || 0;
 };
+
+const isPriorityServiceTier = (value: unknown): boolean =>
+  typeof value === 'string' && value.trim().toLowerCase() === 'priority';
+
+const resolveModelPriceTier = (price: ModelPrice, detail: UsageDetail): ModelPriceTier =>
+  isPriorityServiceTier(detail.service_tier) && price.priority ? price.priority : price;
+
+const extractUsageStringField = (
+  record: Record<string, unknown> | null | undefined,
+  keys: string[]
+): string | undefined => {
+  if (!record) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+};
+
+const extractUsageServiceTier = (
+  record: Record<string, unknown> | null | undefined
+): string | undefined =>
+  extractUsageStringField(record, ['service_tier', 'serviceTier', 'ServiceTier']);
 
 const getApisRecord = (usageData: unknown): Record<string, unknown> | null => {
   const usageRecord = isRecord(usageData) ? usageData : null;
@@ -1054,6 +1135,7 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
             typeof detailRaw.thinking_effort === 'string'
               ? detailRaw.thinking_effort.trim()
               : undefined,
+          service_tier: extractUsageServiceTier(detailRaw),
           latency_ms: latencyMs ?? undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
@@ -1152,6 +1234,7 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
             typeof detailRaw.thinking_effort === 'string'
               ? detailRaw.thinking_effort.trim()
               : undefined,
+          service_tier: extractUsageServiceTier(detailRaw),
           latency_ms: latencyMs ?? undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
@@ -1295,6 +1378,7 @@ export function calculateCost(
   if (!price) {
     return 0;
   }
+  const priceTier = resolveModelPriceTier(price, detail);
   const tokens = detail.tokens;
   const rawInputTokens = Number(tokens.input_tokens);
   const rawCompletionTokens = Number(tokens.output_tokens);
@@ -1308,13 +1392,13 @@ export function calculateCost(
   const isClaudeModel = (priceKey ?? normalizeModelLookupCandidate(modelName)).startsWith('claude');
   const promptTokens = isClaudeModel ? inputTokens : Math.max(inputTokens - cacheReadTokens, 0);
 
-  const cacheReadPrice = getCacheReadPrice(price);
-  const cacheCreationPrice = getCacheCreationPrice(price);
-  const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.prompt) || 0);
+  const cacheReadPrice = getCacheReadPrice(priceTier);
+  const cacheCreationPrice = getCacheCreationPrice(priceTier);
+  const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(priceTier.prompt) || 0);
   const cacheReadCost = (cacheReadTokens / TOKENS_PER_PRICE_UNIT) * cacheReadPrice;
   const cacheCreationCost = (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice;
   const completionCost =
-    (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
+    (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(priceTier.completion) || 0);
   const total = promptCost + cacheReadCost + cacheCreationCost + completionCost;
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
@@ -1403,7 +1487,11 @@ export function getApiStats(
 
           if (price && detailRecord) {
             totalCost += calculateCost(
-              { ...(detailRecord as unknown as UsageDetail), __modelName: modelName },
+              {
+                ...(detailRecord as unknown as UsageDetail),
+                service_tier: extractUsageServiceTier(detailRecord),
+                __modelName: modelName,
+              },
               modelPrices
             );
           }
@@ -1511,7 +1599,11 @@ export function getModelStats(
 
           if (price && detailRecord) {
             existing.cost += calculateCost(
-              { ...(detailRecord as unknown as UsageDetail), __modelName: modelName },
+              {
+                ...(detailRecord as unknown as UsageDetail),
+                service_tier: extractUsageServiceTier(detailRecord),
+                __modelName: modelName,
+              },
               modelPrices
             );
           }

@@ -41,6 +41,8 @@ type RequestEventRow = {
   failed: boolean;
   thinkingEffortRaw: string;
   thinkingEffortLabel: string;
+  serviceTierRaw: string;
+  serviceTierLabel: string;
   latencyMs: number | null;
   inputTokens: number;
   outputTokens: number;
@@ -103,6 +105,27 @@ const formatThinkingEffort = (
     high: t('usage_stats.thinking_effort_high'),
     xhigh: t('usage_stats.thinking_effort_xhigh'),
     max: t('usage_stats.thinking_effort_max'),
+  };
+
+  return {
+    raw,
+    label: labelMap[raw] ?? raw,
+  };
+};
+
+const formatServiceTier = (
+  value: unknown,
+  t: ReturnType<typeof useTranslation>['t']
+): { raw: string; label: string } => {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!raw) {
+    return { raw: '', label: '-' };
+  }
+
+  const labelMap: Record<string, string> = {
+    priority: t('usage_stats.service_tier_priority'),
+    standard: t('usage_stats.service_tier_standard'),
+    default: t('usage_stats.service_tier_default'),
   };
 
   return {
@@ -190,6 +213,7 @@ export function RequestEventsDetailsCard({
       const sourceType = sourceInfo.type;
       const model = String(detail.__modelName ?? '').trim() || '-';
       const thinkingEffort = formatThinkingEffort(detail.thinking_effort, t);
+      const serviceTier = formatServiceTier(detail.service_tier, t);
       const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
@@ -216,6 +240,8 @@ export function RequestEventsDetailsCard({
         failed: detail.failed === true,
         thinkingEffortRaw: thinkingEffort.raw,
         thinkingEffortLabel: thinkingEffort.label,
+        serviceTierRaw: serviceTier.raw,
+        serviceTierLabel: serviceTier.label,
         latencyMs,
         inputTokens,
         outputTokens,
@@ -361,6 +387,7 @@ export function RequestEventsDetailsCard({
       'auth_index',
       'result',
       'thinking_effort',
+      'service_tier',
       ...(hasLatencyData ? ['latency_ms'] : []),
       'input_tokens',
       'output_tokens',
@@ -380,6 +407,7 @@ export function RequestEventsDetailsCard({
         row.authIndex,
         row.failed ? 'failed' : 'success',
         row.thinkingEffortRaw,
+        row.serviceTierRaw,
         ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
         row.inputTokens,
         row.outputTokens,
@@ -412,6 +440,7 @@ export function RequestEventsDetailsCard({
       auth_index: row.authIndex,
       failed: row.failed,
       thinking_effort: row.thinkingEffortRaw || null,
+      service_tier: row.serviceTierRaw || null,
       ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
       tokens: {
         input_tokens: row.inputTokens,
@@ -543,6 +572,7 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.request_events_auth_index')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
                   <th>{t('usage_stats.thinking_effort')}</th>
+                  <th>{t('usage_stats.service_tier')}</th>
                   {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
                   <th>{t('usage_stats.input_tokens')}</th>
                   <th>{t('usage_stats.output_tokens')}</th>
@@ -581,6 +611,7 @@ export function RequestEventsDetailsCard({
                       </span>
                     </td>
                     <td title={row.thinkingEffortLabel}>{row.thinkingEffortLabel}</td>
+                    <td title={row.serviceTierLabel}>{row.serviceTierLabel}</td>
                     {hasLatencyData && (
                       <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
                     )}

@@ -17,15 +17,22 @@ export interface PriceSettingsCardProps {
 export function PriceSettingsCard({
   modelNames,
   modelPrices,
-  onPricesChange
+  onPricesChange,
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
-  const buildPrice = (prompt: number, completion: number, cacheRead: number, cacheCreation: number): ModelPrice => ({
+  const buildPrice = (
+    prompt: number,
+    completion: number,
+    cacheRead: number,
+    cacheCreation: number,
+    existing?: ModelPrice | null
+  ): ModelPrice => ({
     prompt,
     completion,
     cache: cacheRead,
     cacheRead,
-    cacheCreation
+    cacheCreation,
+    ...(existing?.priority ? { priority: { ...existing.priority } } : {}),
   });
 
   // Add form state
@@ -52,9 +59,10 @@ export function PriceSettingsCard({
     const cacheCreation =
       cacheCreationPrice.trim() === '' ? cacheRead : parseFloat(cacheCreationPrice) || 0;
     const targetModel = getEditableModelKey(selectedModel);
+    const existingPrice = modelPrices[targetModel] ?? getModelPrice(selectedModel, modelPrices);
     const newPrices = {
       ...modelPrices,
-      [targetModel]: buildPrice(prompt, completion, cacheRead, cacheCreation)
+      [targetModel]: buildPrice(prompt, completion, cacheRead, cacheCreation, existingPrice),
     };
     onPricesChange(newPrices);
     setSelectedModel('');
@@ -76,7 +84,9 @@ export function PriceSettingsCard({
     setEditPrompt(price?.prompt?.toString() || '');
     setEditCompletion(price?.completion?.toString() || '');
     setEditCacheRead((price?.cacheRead ?? price?.cache ?? 0).toString());
-    setEditCacheCreation((price?.cacheCreation ?? price?.cacheRead ?? price?.cache ?? 0).toString());
+    setEditCacheCreation(
+      (price?.cacheCreation ?? price?.cacheRead ?? price?.cache ?? 0).toString()
+    );
   };
 
   const handleSaveEdit = () => {
@@ -86,9 +96,10 @@ export function PriceSettingsCard({
     const cacheRead = editCacheRead.trim() === '' ? prompt : parseFloat(editCacheRead) || 0;
     const cacheCreation =
       editCacheCreation.trim() === '' ? cacheRead : parseFloat(editCacheCreation) || 0;
+    const existingPrice = modelPrices[editModel];
     const newPrices = {
       ...modelPrices,
-      [editModel]: buildPrice(prompt, completion, cacheRead, cacheCreation)
+      [editModel]: buildPrice(prompt, completion, cacheRead, cacheCreation, existingPrice),
     };
     onPricesChange(newPrices);
     setEditModel(null);
@@ -113,7 +124,7 @@ export function PriceSettingsCard({
   const options = useMemo(
     () => [
       { value: '', label: t('usage_stats.model_price_select_placeholder') },
-      ...modelNames.map((name) => ({ value: name, label: name }))
+      ...modelNames.map((name) => ({ value: name, label: name })),
     ],
     [modelNames, t]
   );
@@ -201,10 +212,12 @@ export function PriceSettingsCard({
                         {t('usage_stats.model_price_completion')}: ${price.completion.toFixed(4)}/1M
                       </span>
                       <span>
-                        {t('usage_stats.model_price_cache_read')}: ${(price.cacheRead ?? price.cache).toFixed(4)}/1M
+                        {t('usage_stats.model_price_cache_read')}: $
+                        {(price.cacheRead ?? price.cache).toFixed(4)}/1M
                       </span>
                       <span>
-                        {t('usage_stats.model_price_cache_creation')}: ${(price.cacheCreation ?? price.cacheRead ?? price.cache).toFixed(4)}/1M
+                        {t('usage_stats.model_price_cache_creation')}: $
+                        {(price.cacheCreation ?? price.cacheRead ?? price.cache).toFixed(4)}/1M
                       </span>
                     </div>
                   </div>
