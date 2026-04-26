@@ -62,6 +62,14 @@ export default defineConfig({
       }
     }
   },
+  server: {
+    proxy: {
+      '/v0': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8317',
+        changeOrigin: true
+      }
+    }
+  },
   build: {
     target: 'es2020',
     outDir: 'dist',
