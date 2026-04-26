@@ -626,7 +626,12 @@
     "prefix_proxy_invalid_json": "該驗證檔案不是 JSON 物件，無法編輯欄位。",
     "prefix_proxy_saved_success": "已更新驗證檔案「{{name}}」",
     "quota_refresh_success": "已重新整理「{{name}}」的配額",
-    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}"
+    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}",
+    "quota_refresh_all_button": "重新整理全部憑證",
+    "quota_refresh_all_empty": "目前篩選下沒有可重新整理的憑證",
+    "quota_refresh_all_success": "已重新整理 {{count}} 個憑證配額",
+    "quota_refresh_all_partial": "已重新整理 {{success}} 個，{{failed}} 個失敗",
+    "quota_refresh_all_failed": "重新整理全部憑證失敗"
   },
   "antigravity_quota": {
     "title": "Antigravity 配額",
