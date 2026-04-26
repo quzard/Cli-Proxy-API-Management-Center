@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import type { ReactElement, ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import type { AuthFileItem, ResolvedTheme, ThemeColors } from '@/types';
-import type { ModelPrice, UsageDetail } from '@/utils/usage';
 import { TYPE_COLORS } from '@/utils/quota';
 import styles from '@/pages/QuotaPage.module.scss';
 
@@ -19,9 +18,14 @@ export interface QuotaStatusState {
   loadedAt?: number;
 }
 
+export interface QuotaPeriodSummary {
+  requests: number;
+  tokens: number;
+  cost: number;
+}
+
 export interface QuotaUsageContext {
-  usageDetails: UsageDetail[];
-  modelPrices: Record<string, ModelPrice>;
+  periodSummaries: Record<string, QuotaPeriodSummary>;
   usageLoading: boolean;
 }
 

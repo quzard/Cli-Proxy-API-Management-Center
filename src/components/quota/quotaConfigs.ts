@@ -76,8 +76,6 @@ import {
   isRuntimeOnlyAuthFile,
 } from '@/utils/quota';
 import {
-  calculateCost,
-  extractTotalTokens,
   formatCompactNumber,
   formatUsd,
   normalizeAuthIndex,
@@ -113,12 +111,6 @@ const normalizeCodexModelFilter = (value: unknown): string | null => {
   if (normalized.includes('spark')) return 'spark';
   return null;
 };
-
-const normalizeCodexModelName = (value: unknown): string =>
-  normalizeStringValue(value)
-    ?.toLowerCase()
-    .replace(/[^a-z0-9.]+/g, '-')
-    .replace(/^-+|-+$/g, '') ?? '';
 
 const resolveCodexWindowTiming = (
   window?: CodexUsageWindow | null,
@@ -807,9 +799,11 @@ type CodexPeriodUsageSummary =
   | { status: 'unavailable' }
   | { status: 'ready'; requests: number; tokens: number; cost: number };
 
+export const getCodexPeriodSummaryKey = (fileName: string, windowId: string): string =>
+  `${fileName}::${windowId}`;
+
 const buildCodexPeriodUsageSummary = (
   window: CodexQuotaWindow,
-  authIndex: string | null,
   helpers: QuotaRenderHelpers
 ): CodexPeriodUsageSummary => {
   const usageContext = helpers.usageContext;
@@ -818,40 +812,23 @@ const buildCodexPeriodUsageSummary = (
   }
   if (
     !usageContext ||
-    !authIndex ||
     typeof window.startAtMs !== 'number' ||
     typeof window.resetAtMs !== 'number'
   ) {
     return { status: 'unavailable' };
   }
 
-  const startAtMs = window.startAtMs;
-  const resetAtMs = window.resetAtMs;
-  const modelFilter = normalizeCodexModelName(window.modelFilter);
-  let requests = 0;
-  let tokens = 0;
-  let cost = 0;
-
-  usageContext.usageDetails.forEach((detail) => {
-    if (normalizeAuthIndex(detail.auth_index) !== authIndex) return;
-    const timestampMs = detail.__timestampMs ?? 0;
-    if (!Number.isFinite(timestampMs) || timestampMs < startAtMs || timestampMs >= resetAtMs) {
-      return;
-    }
-
-    if (modelFilter) {
-      const modelName = normalizeCodexModelName(detail.__modelName);
-      if (!modelName || (!modelName.includes(modelFilter) && !modelFilter.includes(modelName))) {
-        return;
-      }
-    }
-
-    requests += 1;
-    tokens += extractTotalTokens(detail);
-    cost += calculateCost(detail, usageContext.modelPrices);
-  });
-
-  return { status: 'ready', requests, tokens, cost };
+  const summary =
+    usageContext.periodSummaries[getCodexPeriodSummaryKey(helpers.item.name, window.id)];
+  if (!summary) {
+    return { status: 'unavailable' };
+  }
+  return {
+    status: 'ready',
+    requests: summary.requests,
+    tokens: summary.tokens,
+    cost: summary.cost
+  };
 };
 
 const formatCodexPeriodTokens = (value: number): string =>
@@ -859,13 +836,12 @@ const formatCodexPeriodTokens = (value: number): string =>
 
 const renderCodexPeriodUsageSummary = (
   window: CodexQuotaWindow,
-  authIndex: string | null,
   t: TFunction,
   helpers: QuotaRenderHelpers
 ): ReactNode => {
   const { styles: styleMap } = helpers;
   const { createElement: h } = React;
-  const summary = buildCodexPeriodUsageSummary(window, authIndex, helpers);
+  const summary = buildCodexPeriodUsageSummary(window, helpers);
 
   if (summary.status === 'loading') {
     return h(
@@ -914,7 +890,6 @@ const renderCodexItems = (
   const { createElement: h, Fragment } = React;
   const windows = quota.windows ?? [];
   const planType = quota.planType ?? null;
-  const authIndex = normalizeAuthIndex(helpers.item['auth_index'] ?? helpers.item.authIndex);
 
   const getPlanLabel = (pt?: string | null): string | null => {
     const normalized = normalizePlanType(pt);
@@ -981,7 +956,7 @@ const renderCodexItems = (
           highThreshold: QUOTA_PROGRESS_HIGH_THRESHOLD,
           mediumThreshold: QUOTA_PROGRESS_MEDIUM_THRESHOLD,
         }),
-        renderCodexPeriodUsageSummary(window, authIndex, t, helpers)
+        renderCodexPeriodUsageSummary(window, t, helpers)
       );
     })
   );

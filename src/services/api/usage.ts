@@ -35,11 +35,56 @@ export interface UsageModelPricesResponse {
   [key: string]: unknown;
 }
 
+export interface UsagePeriodSummaryWindow {
+  id: string;
+  auth_index?: string;
+  authIndex?: string;
+  start_at_ms?: number;
+  startAtMs?: number;
+  end_at_ms?: number;
+  endAtMs?: number;
+  model_filter?: string | null;
+  modelFilter?: string | null;
+}
+
+export interface UsagePeriodSummaryRequest {
+  windows: UsagePeriodSummaryWindow[];
+  model_prices?: Record<string, ModelPrice>;
+  modelPrices?: Record<string, ModelPrice>;
+}
+
+export interface UsagePeriodSummaryItem {
+  id: string;
+  requests: number;
+  tokens: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  cached_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  cost: number;
+}
+
+export interface UsagePeriodSummaryResponse {
+  items?: UsagePeriodSummaryItem[];
+  generated_at?: string;
+  [key: string]: unknown;
+}
+
 export const usageApi = {
   /**
    * 获取使用统计原始数据
    */
   getUsage: () => apiClient.get<Record<string, unknown>>('/usage', { timeout: USAGE_TIMEOUT_MS }),
+
+  /**
+   * 按时间窗口获取聚合后的使用统计
+   */
+  getUsagePeriodSummary: (payload: UsagePeriodSummaryRequest) =>
+    apiClient.post<UsagePeriodSummaryResponse>('/usage/period-summary', payload, {
+      timeout: USAGE_TIMEOUT_MS
+    }),
 
   /**
    * 导出使用统计快照

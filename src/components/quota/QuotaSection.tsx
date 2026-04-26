@@ -16,18 +16,22 @@ import {
   useThemeStore,
   useUsageStatsStore
 } from '@/stores';
-import type { AuthFileItem, ResolvedTheme } from '@/types';
+import type { AuthFileItem, CodexQuotaWindow, ResolvedTheme } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
 import {
+  calculateCost,
+  extractTotalTokens,
   getDefaultModelPrices,
   mergeModelPricesWithDefaults,
+  normalizeAuthIndex,
   normalizeSharedModelPrices,
-  type ModelPrice
+  type ModelPrice,
+  type UsageDetail
 } from '@/utils/usage';
 import { QuotaCard } from './QuotaCard';
-import type { QuotaStatusState, QuotaUsageContext } from './QuotaCard';
+import type { QuotaPeriodSummary, QuotaStatusState, QuotaUsageContext } from './QuotaCard';
 import { useQuotaLoader } from './useQuotaLoader';
-import type { QuotaConfig } from './quotaConfigs';
+import { getCodexPeriodSummaryKey, type QuotaConfig } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
 import { IconRefreshCw } from '@/components/ui/icons';
 import styles from '@/pages/QuotaPage.module.scss';
@@ -105,18 +109,162 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginatio
   };
 };
 
-const useCodexQuotaUsageContext = (enabled: boolean): QuotaUsageContext | undefined => {
+interface CodexPeriodSummaryWindowRequest {
+  id: string;
+  authIndex: string;
+  startAtMs: number;
+  endAtMs: number;
+  modelFilter: string | null;
+}
+
+type CodexQuotaLike = QuotaStatusState & { windows?: CodexQuotaWindow[] };
+
+const normalizeCodexSummaryModelName = (value: unknown): string =>
+  typeof value === 'string'
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9.]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    : '';
+
+const buildCodexPeriodSummaryWindows = (
+  items: AuthFileItem[],
+  quota: Record<string, QuotaStatusState>
+): CodexPeriodSummaryWindowRequest[] => {
+  const windows: CodexPeriodSummaryWindowRequest[] = [];
+
+  items.forEach((file) => {
+    const authIndex = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
+    if (!authIndex) return;
+
+    const state = quota[file.name] as CodexQuotaLike | undefined;
+    if (state?.status !== 'success' || !Array.isArray(state.windows)) return;
+
+    state.windows.forEach((window) => {
+      if (
+        typeof window.startAtMs !== 'number' ||
+        typeof window.resetAtMs !== 'number' ||
+        !Number.isFinite(window.startAtMs) ||
+        !Number.isFinite(window.resetAtMs) ||
+        window.resetAtMs <= window.startAtMs
+      ) {
+        return;
+      }
+
+      windows.push({
+        id: getCodexPeriodSummaryKey(file.name, window.id),
+        authIndex,
+        startAtMs: Math.round(window.startAtMs),
+        endAtMs: Math.round(window.resetAtMs),
+        modelFilter: window.modelFilter ?? null
+      });
+    });
+  });
+
+  return windows;
+};
+
+const createEmptyPeriodSummaries = (): Record<string, QuotaPeriodSummary> => ({});
+
+const toSafeNumber = (value: unknown): number => {
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : 0;
+};
+
+const buildRemotePeriodSummaries = (
+  items: unknown
+): Record<string, QuotaPeriodSummary> => {
+  if (!Array.isArray(items)) return createEmptyPeriodSummaries();
+
+  return items.reduce<Record<string, QuotaPeriodSummary>>((next, item) => {
+    if (!item || typeof item !== 'object') return next;
+    const record = item as Record<string, unknown>;
+    const id = typeof record.id === 'string' ? record.id : '';
+    if (!id) return next;
+    next[id] = {
+      requests: toSafeNumber(record.requests),
+      tokens: toSafeNumber(record.tokens),
+      cost: toSafeNumber(record.cost)
+    };
+    return next;
+  }, {});
+};
+
+const detailTimestampMs = (detail: UsageDetail): number => {
+  if (typeof detail.__timestampMs === 'number' && Number.isFinite(detail.__timestampMs)) {
+    return detail.__timestampMs;
+  }
+  const parsed = Date.parse(detail.timestamp);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const buildLocalPeriodSummaries = (
+  windows: CodexPeriodSummaryWindowRequest[],
+  usageDetails: UsageDetail[],
+  modelPrices: Record<string, ModelPrice>
+): Record<string, QuotaPeriodSummary> => {
+  const summaries = windows.reduce<Record<string, QuotaPeriodSummary>>((next, window) => {
+    next[window.id] = { requests: 0, tokens: 0, cost: 0 };
+    return next;
+  }, {});
+
+  usageDetails.forEach((detail) => {
+    const authIndex = normalizeAuthIndex(detail.auth_index);
+    if (!authIndex) return;
+    const timestampMs = detailTimestampMs(detail);
+    if (!timestampMs) return;
+    const modelName = normalizeCodexSummaryModelName(detail.__modelName);
+
+    windows.forEach((window) => {
+      if (authIndex !== window.authIndex) return;
+      if (timestampMs < window.startAtMs || timestampMs >= window.endAtMs) return;
+
+      const modelFilter = normalizeCodexSummaryModelName(window.modelFilter);
+      if (
+        modelFilter &&
+        (!modelName || (!modelName.includes(modelFilter) && !modelFilter.includes(modelName)))
+      ) {
+        return;
+      }
+
+      const summary = summaries[window.id];
+      if (!summary) return;
+      summary.requests += 1;
+      summary.tokens += extractTotalTokens(detail);
+      summary.cost += calculateCost(detail, modelPrices);
+    });
+  });
+
+  return summaries;
+};
+
+const useCodexQuotaUsageContext = (
+  enabled: boolean,
+  pageItems: AuthFileItem[],
+  quota: Record<string, QuotaStatusState>
+): QuotaUsageContext | undefined => {
   const usageDetails = useUsageStatsStore((state) => state.usageDetails);
   const usageLoading = useUsageStatsStore((state) => state.loading);
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
   const [modelPrices, setModelPrices] = useState<Record<string, ModelPrice>>(() =>
     getDefaultModelPrices()
   );
+  const [periodSummaries, setPeriodSummaries] = useState<Record<string, QuotaPeriodSummary>>(() =>
+    createEmptyPeriodSummaries()
+  );
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [useLocalFallback, setUseLocalFallback] = useState(false);
+
+  const summaryWindows = useMemo(
+    () => (enabled ? buildCodexPeriodSummaryWindows(pageItems, quota) : []),
+    [enabled, pageItems, quota]
+  );
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !useLocalFallback) return;
     void loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS }).catch(() => {});
-  }, [enabled, loadUsageStats]);
+  }, [enabled, loadUsageStats, useLocalFallback]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -144,11 +292,81 @@ const useCodexQuotaUsageContext = (enabled: boolean): QuotaUsageContext | undefi
     };
   }, [enabled]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const resetSummaries = () => {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setPeriodSummaries(createEmptyPeriodSummaries());
+        setSummaryLoading(false);
+      });
+    };
+
+    if (!enabled) {
+      resetSummaries();
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (useLocalFallback) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (summaryWindows.length === 0) {
+      resetSummaries();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSummaryLoading(true);
+      usageApi
+        .getUsagePeriodSummary({
+          windows: summaryWindows.map((window) => ({
+            id: window.id,
+            auth_index: window.authIndex,
+            start_at_ms: window.startAtMs,
+            end_at_ms: window.endAtMs,
+            model_filter: window.modelFilter
+          })),
+          model_prices: modelPrices
+        })
+        .then((response) => {
+          if (cancelled) return;
+          setPeriodSummaries(buildRemotePeriodSummaries(response.items));
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setUseLocalFallback(true);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setSummaryLoading(false);
+          }
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, modelPrices, summaryWindows, useLocalFallback]);
+
+  const localPeriodSummaries = useMemo(
+    () =>
+      useLocalFallback
+        ? buildLocalPeriodSummaries(summaryWindows, usageDetails, modelPrices)
+        : createEmptyPeriodSummaries(),
+    [modelPrices, summaryWindows, usageDetails, useLocalFallback]
+  );
+
   if (!enabled) return undefined;
   return {
-    usageDetails,
-    modelPrices,
-    usageLoading
+    periodSummaries: useLocalFallback ? localPeriodSummaries : periodSummaries,
+    usageLoading: summaryLoading || (useLocalFallback && usageLoading)
   };
 };
 
@@ -224,7 +442,9 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
 
   const { quota, loadQuota } = useQuotaLoader(config);
   const usageContext = useCodexQuotaUsageContext(
-    config.type === 'codex' && filteredFiles.length > 0 && !disabled
+    config.type === 'codex' && filteredFiles.length > 0 && !disabled,
+    pageItems,
+    quota as Record<string, QuotaStatusState>
   );
 
   const pendingQuotaRefreshRef = useRef(false);
