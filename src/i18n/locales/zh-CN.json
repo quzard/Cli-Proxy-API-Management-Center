@@ -116,6 +116,7 @@
     "oauth": "OAuth 登录",
     "quota_management": "配额管理",
     "usage_stats": "使用统计",
+    "sk_view": "SK 视图",
     "config_management": "配置面板",
     "logs": "日志查看",
     "system_info": "中心信息"

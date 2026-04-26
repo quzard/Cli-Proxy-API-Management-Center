@@ -1,0 +1,722 @@
+@use '../styles/variables' as *;
+@use '../styles/mixins' as *;
+
+.page {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0 4px;
+
+  @include mobile {
+    flex-direction: column;
+  }
+}
+
+.pageTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+.description {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.refreshButton {
+  flex-shrink: 0;
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.filterBar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(150px, 0.8fr) minmax(190px, 1fr) minmax(140px, 0.7fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: var(--shadow-sm);
+
+  @media (max-width: 1280px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filterControl,
+.filterControlWide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+
+  label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+}
+
+.filterControlWide {
+  min-width: 260px;
+
+  @include mobile {
+    min-width: 0;
+  }
+}
+
+.failedToggle {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+
+  input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-color);
+  }
+}
+
+.errorBanner {
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: $radius-md;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.layoutGrid {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+
+  @media (max-width: 1420px) {
+    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  }
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.subjectPanel,
+.sideCard,
+.selectedHeaderCard,
+.usageBand,
+.tableSection {
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--bg-primary) 90%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+
+.subjectPanel {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  min-width: 0;
+  max-height: calc(100vh - 150px);
+
+  @include mobile {
+    position: static;
+    max-height: none;
+  }
+}
+
+.panelHeader,
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+
+  h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.3;
+    font-weight: 800;
+  }
+
+  span {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+}
+
+.searchInput {
+  height: 40px;
+  padding-right: 34px;
+}
+
+.subjectPanel :global(.form-group) {
+  margin: 0;
+}
+
+.subjectList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.subjectItem {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color $transition-fast,
+    background $transition-fast,
+    box-shadow $transition-fast,
+    transform $transition-fast;
+
+  &:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-primary);
+    transform: translateY(-1px);
+  }
+
+  strong {
+    @include text-ellipsis;
+    display: block;
+    max-width: 100%;
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 800;
+  }
+}
+
+.subjectItemActive {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-primary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.subjectTopLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.providerBadge,
+.providerBadgeLarge,
+.priorityBadge,
+.disabledBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-full;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.providerBadge {
+  max-width: 118px;
+  min-height: 22px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));
+  color: var(--primary-active);
+  font-size: 11px;
+  @include text-ellipsis;
+}
+
+.providerBadgeLarge {
+  min-height: 28px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--primary-color) 13%, var(--bg-primary));
+  color: var(--primary-active);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.priorityBadge {
+  min-height: 22px;
+  padding: 0 7px;
+  background: color-mix(in srgb, #d99a00 15%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, #d99a00 35%, var(--border-color));
+  color: #a36b00;
+  font-size: 11px;
+}
+
+.disabledBadge {
+  min-height: 22px;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--text-tertiary) 12%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--border-color) 90%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.subjectHealthDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-color) 14%, transparent);
+  flex-shrink: 0;
+
+  &[data-good='true'] {
+    background: var(--success-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-color) 14%, transparent);
+  }
+}
+
+.subjectSubtitle {
+  @include text-ellipsis;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.subjectStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 0 7px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+    border-radius: $radius-full;
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+  }
+}
+
+.mainColumn,
+.sideColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.sideColumn {
+  @media (max-width: 1420px) {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @media (max-width: 1120px) {
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+  }
+}
+
+.selectedHeaderCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+
+  @include mobile {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.selectedTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+
+  h2 {
+    @include text-ellipsis;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 18px;
+    line-height: 1.3;
+    font-weight: 850;
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 650;
+  }
+}
+
+.lastRefresh {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 1280px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kpiCard {
+  min-width: 0;
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border-radius: $radius-md;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 96%, transparent), transparent),
+    color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+
+  span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  strong {
+    @include text-ellipsis;
+    color: var(--text-primary);
+    font-size: 24px;
+    line-height: 1.2;
+    font-weight: 850;
+    font-variant-numeric: tabular-nums;
+  }
+
+  em {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 700;
+  }
+}
+
+.usageBand {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bandRow {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+}
+
+.progressTrack,
+.miniBar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: $radius-full;
+  background: color-mix(in srgb, var(--border-color) 70%, transparent);
+
+  span {
+    display: block;
+    height: 100%;
+    min-width: 2px;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--primary-color), var(--success-color));
+  }
+}
+
+.tokenBreakdown {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--border-color) 82%, transparent);
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 10px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+    border-radius: $radius-full;
+    background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+  }
+}
+
+.tableSection,
+.sideCard {
+  padding: 14px;
+}
+
+.tableWrap {
+  margin-top: 12px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: $radius-md;
+}
+
+.requestTable {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th,
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-secondary);
+    color: var(--text-tertiary);
+    font-weight: 850;
+  }
+
+  td {
+    color: var(--text-primary);
+    font-weight: 650;
+  }
+
+  td:nth-child(2),
+  td:nth-child(9) {
+    max-width: 230px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.failedRow {
+  background: color-mix(in srgb, var(--warning-color) 7%, transparent);
+}
+
+.statusGood,
+.statusBad {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: $radius-full;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.statusGood {
+  color: var(--success-badge-text, #065f46);
+  background: var(--success-badge-bg, #d1fae5);
+  border: 1px solid var(--success-badge-border, #6ee7b7);
+}
+
+.statusBad {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+}
+
+.barList,
+.endpointList,
+.recentList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.barItem {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+
+  > div:first-child {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  strong {
+    @include text-ellipsis;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  span {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+}
+
+.miniBar {
+  height: 6px;
+}
+
+.endpointItem,
+.recentItem {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+}
+
+.endpointItem {
+  strong {
+    @include text-ellipsis;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  span,
+  em {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 700;
+  }
+
+  em {
+    color: var(--text-tertiary);
+    font-size: 11px;
+  }
+}
+
+.recentItem {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+
+  strong {
+    @include text-ellipsis;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 850;
+  }
+
+  em {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+}
+
+.muted {
+  padding: 18px 10px;
+  border: 1px dashed color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: $radius-md;
+  color: var(--text-tertiary);
+  background: color-mix(in srgb, var(--bg-secondary) 64%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
