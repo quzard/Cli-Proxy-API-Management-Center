@@ -888,6 +888,13 @@ export function VisualConfigEditor({
                     }
                   />
                 </FieldShell>
+                <Input
+                  label={t('config_management.visual.sections.network.session_affinity_ttl')}
+                  placeholder="1h"
+                  value={values.routingSessionAffinityTTL}
+                  onChange={(e) => onChange({ routingSessionAffinityTTL: e.target.value })}
+                  disabled={disabled}
+                />
               </SectionGrid>
 
               <SectionGrid>
@@ -899,6 +906,12 @@ export function VisualConfigEditor({
                   checked={values.forceModelPrefix}
                   disabled={disabled}
                   onChange={(forceModelPrefix) => onChange({ forceModelPrefix })}
+                />
+                <ToggleRow
+                  title={t('config_management.visual.sections.network.session_affinity')}
+                  checked={values.routingSessionAffinity}
+                  disabled={disabled}
+                  onChange={(routingSessionAffinity) => onChange({ routingSessionAffinity })}
                 />
                 <ToggleRow
                   title={t('config_management.visual.sections.network.ws_auth')}
@@ -935,6 +948,15 @@ export function VisualConfigEditor({
                 checked={values.quotaSwitchPreviewModel}
                 disabled={disabled}
                 onChange={(quotaSwitchPreviewModel) => onChange({ quotaSwitchPreviewModel })}
+              />
+              <ToggleRow
+                title={t('config_management.visual.sections.quota.antigravity_credits')}
+                description={t(
+                  'config_management.visual.sections.quota.antigravity_credits_desc'
+                )}
+                checked={values.quotaAntigravityCredits}
+                disabled={disabled}
+                onChange={(quotaAntigravityCredits) => onChange({ quotaAntigravityCredits })}
               />
             </SectionGrid>
           </ConfigSection>

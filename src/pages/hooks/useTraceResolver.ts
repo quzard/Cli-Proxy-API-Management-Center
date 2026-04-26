@@ -5,6 +5,7 @@ import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
 import type { AuthFileItem, Config } from '@/types';
 import type { CredentialInfo, SourceInfo } from '@/types/sourceInfo';
 import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
+import { parseTimestampMs } from '@/utils/timestamp';
 import {
   collectUsageDetailsWithEndpoint,
   normalizeAuthIndex,
@@ -181,7 +182,7 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
 
     const logRequestId = String(traceLogLine.requestId ?? '').trim().toLowerCase();
     const logTimestampMs = traceLogLine.timestamp
-      ? Date.parse(traceLogLine.timestamp)
+      ? parseTimestampMs(traceLogLine.timestamp)
       : Number.NaN;
 
     if (logRequestId) {
