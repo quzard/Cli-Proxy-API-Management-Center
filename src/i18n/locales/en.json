@@ -692,7 +692,13 @@
     "plan_team": "Team",
     "plan_free": "Free",
     "plan_pro": "Pro 20x",
-    "plan_prolite": "Pro 5x"
+    "plan_prolite": "Pro 5x",
+    "period_usage_label": "This period",
+    "period_usage_requests": "{{count}} requests",
+    "period_usage_tokens": "{{value}} Tokens",
+    "period_usage_cost": "Estimated {{value}}",
+    "period_usage_loading": "Calculating period usage...",
+    "period_usage_unavailable": "No period usage data"
   },
   "gemini_cli_quota": {
     "title": "Gemini CLI Quota",

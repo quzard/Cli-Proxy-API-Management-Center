@@ -72,14 +72,21 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
 
         setQuota((prev) => {
           const nextState = { ...prev };
+          const loadedAt = Date.now();
           results.forEach((result) => {
             if (result.status === 'success') {
-              nextState[result.name] = config.buildSuccessState(result.data as TData);
+              nextState[result.name] = {
+                ...config.buildSuccessState(result.data as TData),
+                loadedAt
+              } as TState;
             } else {
-              nextState[result.name] = config.buildErrorState(
-                result.error || t('common.unknown_error'),
-                result.errorStatus
-              );
+              nextState[result.name] = {
+                ...config.buildErrorState(
+                  result.error || t('common.unknown_error'),
+                  result.errorStatus
+                ),
+                loadedAt
+              } as TState;
             }
           });
           return nextState;

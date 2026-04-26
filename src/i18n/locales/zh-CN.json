@@ -692,7 +692,13 @@
     "plan_team": "Team",
     "plan_free": "Free",
     "plan_pro": "Pro 20x",
-    "plan_prolite": "Pro 5x"
+    "plan_prolite": "Pro 5x",
+    "period_usage_label": "本周期",
+    "period_usage_requests": "{{count}} 请求",
+    "period_usage_tokens": "{{value}} Tokens",
+    "period_usage_cost": "估算费用 {{value}}",
+    "period_usage_loading": "正在计算本周期用量...",
+    "period_usage_unavailable": "暂无本周期统计"
   },
   "gemini_cli_quota": {
     "title": "Gemini CLI 额度",

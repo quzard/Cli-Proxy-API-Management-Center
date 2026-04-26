@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { ReactElement, ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import type { AuthFileItem, ResolvedTheme, ThemeColors } from '@/types';
+import type { ModelPrice, UsageDetail } from '@/utils/usage';
 import { TYPE_COLORS } from '@/utils/quota';
 import styles from '@/pages/QuotaPage.module.scss';
 
@@ -15,6 +16,13 @@ export interface QuotaStatusState {
   status: QuotaStatus;
   error?: string;
   errorStatus?: number;
+  loadedAt?: number;
+}
+
+export interface QuotaUsageContext {
+  usageDetails: UsageDetail[];
+  modelPrices: Record<string, ModelPrice>;
+  usageLoading: boolean;
 }
 
 export interface QuotaProgressBarProps {
@@ -54,6 +62,8 @@ export function QuotaProgressBar({
 export interface QuotaRenderHelpers {
   styles: typeof styles;
   QuotaProgressBar: (props: QuotaProgressBarProps) => ReactElement;
+  item: AuthFileItem;
+  usageContext?: QuotaUsageContext;
 }
 
 interface QuotaCardProps<TState extends QuotaStatusState> {
@@ -66,6 +76,7 @@ interface QuotaCardProps<TState extends QuotaStatusState> {
   defaultType: string;
   canRefresh?: boolean;
   onRefresh?: () => void;
+  usageContext?: QuotaUsageContext;
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
 
@@ -79,6 +90,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
   defaultType,
   canRefresh = false,
   onRefresh,
+  usageContext,
   renderQuotaItems
 }: QuotaCardProps<TState>) {
   const { t } = useTranslation();
@@ -143,7 +155,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
             })}
           </div>
         ) : quota ? (
-          renderQuotaItems(quota, t, { styles, QuotaProgressBar })
+          renderQuotaItems(quota, t, { styles, QuotaProgressBar, item, usageContext })
         ) : (
           <div className={styles.quotaMessage}>{t(idleMessageKey)}</div>
         )}

@@ -8,11 +8,24 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
+import { usageApi } from '@/services/api';
+import {
+  USAGE_STATS_STALE_TIME_MS,
+  useNotificationStore,
+  useQuotaStore,
+  useThemeStore,
+  useUsageStatsStore
+} from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
+import {
+  getDefaultModelPrices,
+  mergeModelPricesWithDefaults,
+  normalizeSharedModelPrices,
+  type ModelPrice
+} from '@/utils/usage';
 import { QuotaCard } from './QuotaCard';
-import type { QuotaStatusState } from './QuotaCard';
+import type { QuotaStatusState, QuotaUsageContext } from './QuotaCard';
 import { useQuotaLoader } from './useQuotaLoader';
 import type { QuotaConfig } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
@@ -27,6 +40,7 @@ type ViewMode = 'paged' | 'all';
 
 const MAX_ITEMS_PER_PAGE = 25;
 const MAX_SHOW_ALL_THRESHOLD = 30;
+const DEFAULT_AUTO_LOAD_TTL_MS = 5 * 60 * 1000;
 
 interface QuotaPaginationState<T> {
   pageSize: number;
@@ -88,6 +102,53 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginatio
     loading,
     loadingScope,
     setLoading
+  };
+};
+
+const useCodexQuotaUsageContext = (enabled: boolean): QuotaUsageContext | undefined => {
+  const usageDetails = useUsageStatsStore((state) => state.usageDetails);
+  const usageLoading = useUsageStatsStore((state) => state.loading);
+  const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
+  const [modelPrices, setModelPrices] = useState<Record<string, ModelPrice>>(() =>
+    getDefaultModelPrices()
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    void loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS }).catch(() => {});
+  }, [enabled, loadUsageStats]);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    let cancelled = false;
+    usageApi
+      .getUsageModelPrices()
+      .then((sharedPricing) => {
+        if (cancelled) return;
+        setModelPrices(
+          mergeModelPricesWithDefaults(
+            normalizeSharedModelPrices(sharedPricing.prices),
+            sharedPricing.disabledDefaultModels
+          )
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModelPrices(getDefaultModelPrices());
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+
+  if (!enabled) return undefined;
+  return {
+    usageDetails,
+    modelPrices,
+    usageLoading
   };
 };
 
@@ -162,6 +223,9 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   }, [effectiveViewMode, columns, filteredFiles.length, setPageSize]);
 
   const { quota, loadQuota } = useQuotaLoader(config);
+  const usageContext = useCodexQuotaUsageContext(
+    config.type === 'codex' && filteredFiles.length > 0 && !disabled
+  );
 
   const pendingQuotaRefreshRef = useRef(false);
   const prevFilesLoadingRef = useRef(loading);
@@ -204,6 +268,36 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     });
   }, [filteredFiles, loading, setQuota]);
 
+  useEffect(() => {
+    if (!config.autoLoad) return;
+    if (loading || disabled || sectionLoading) return;
+    if (pageItems.length === 0) return;
+
+    const now = Date.now();
+    const ttl = config.autoLoadTtlMs ?? DEFAULT_AUTO_LOAD_TTL_MS;
+    const targets = pageItems.filter((file) => {
+      if (file.disabled) return false;
+      const state = quota[file.name] as (QuotaStatusState & { loadedAt?: number }) | undefined;
+      if (!state) return true;
+      if (state.status === 'loading') return false;
+      if (!state.loadedAt) return state.status === 'idle' || state.status === 'error';
+      return now - state.loadedAt > ttl;
+    });
+
+    if (targets.length === 0) return;
+    loadQuota(targets, 'page', setLoading);
+  }, [
+    config.autoLoad,
+    config.autoLoadTtlMs,
+    disabled,
+    loadQuota,
+    loading,
+    pageItems,
+    quota,
+    sectionLoading,
+    setLoading
+  ]);
+
   const refreshQuotaForFile = useCallback(
     async (file: AuthFileItem) => {
       if (disabled || file.disabled) return;
@@ -218,7 +312,10 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
         const data = await config.fetchQuota(file, t);
         setQuota((prev) => ({
           ...prev,
-          [file.name]: config.buildSuccessState(data)
+          [file.name]: {
+            ...config.buildSuccessState(data),
+            loadedAt: Date.now()
+          } as TState
         }));
         showNotification(t('auth_files.quota_refresh_success', { name: file.name }), 'success');
       } catch (err: unknown) {
@@ -226,7 +323,10 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
         const status = getStatusFromError(err);
         setQuota((prev) => ({
           ...prev,
-          [file.name]: config.buildErrorState(message, status)
+          [file.name]: {
+            ...config.buildErrorState(message, status),
+            loadedAt: Date.now()
+          } as TState
         }));
         showNotification(
           t('auth_files.quota_refresh_failed', { name: file.name, message }),
@@ -319,6 +419,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
                 defaultType={config.type}
                 canRefresh={!disabled && !item.disabled}
                 onRefresh={() => void refreshQuotaForFile(item)}
+                usageContext={usageContext}
                 renderQuotaItems={config.renderQuotaItems}
               />
             ))}
