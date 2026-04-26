@@ -11,6 +11,7 @@ import {
   IconTrash2,
 } from '@/components/ui/icons';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
+import type { QuotaUsageContext } from '@/components/quota';
 import type { AuthFileItem } from '@/types';
 import { resolveAuthProvider } from '@/utils/quota';
 import { calculateStatusBarData, normalizeAuthIndex, type KeyStats } from '@/utils/usage';
@@ -43,6 +44,7 @@ export type AuthFileCardProps = {
   deleting: string | null;
   statusUpdating: Record<string, boolean>;
   quotaFilterType: QuotaProviderType | null;
+  quotaUsageContext?: QuotaUsageContext;
   keyStats: KeyStats;
   statusBarCache: Map<string, AuthFileStatusBarData>;
   onShowModels: (file: AuthFileItem) => void;
@@ -70,6 +72,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
     deleting,
     statusUpdating,
     quotaFilterType,
+    quotaUsageContext,
     keyStats,
     statusBarCache,
     onShowModels,
@@ -245,6 +248,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 file={file}
                 quotaType={quotaType}
                 disableControls={disableControls}
+                usageContext={quotaUsageContext}
               />
             )}
           </div>

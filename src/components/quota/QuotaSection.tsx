@@ -239,7 +239,7 @@ const buildLocalPeriodSummaries = (
   return summaries;
 };
 
-const useCodexQuotaUsageContext = (
+export const useCodexQuotaUsageContext = (
   enabled: boolean,
   pageItems: AuthFileItem[],
   quota: Record<string, QuotaStatusState>

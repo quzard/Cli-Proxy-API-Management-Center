@@ -44,6 +44,10 @@ import { AuthFileModelsModal } from '@/features/authFiles/components/AuthFileMod
 import { AuthFilesPrefixProxyEditorModal } from '@/features/authFiles/components/AuthFilesPrefixProxyEditorModal';
 import { OAuthExcludedCard } from '@/features/authFiles/components/OAuthExcludedCard';
 import { OAuthModelAliasCard } from '@/features/authFiles/components/OAuthModelAliasCard';
+import {
+  useCodexQuotaUsageContext,
+  type QuotaStatusState,
+} from '@/components/quota';
 import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
 import { useAuthFilesModels } from '@/features/authFiles/hooks/useAuthFilesModels';
 import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth';
@@ -58,7 +62,7 @@ import {
   writePersistedAuthFilesCompactMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
-import { useAuthStore, useNotificationStore, useThemeStore } from '@/stores';
+import { useAuthStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import styles from './AuthFilesPage.module.scss';
 
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
@@ -437,6 +441,12 @@ export function AuthFilesPage() {
   const selectablePageItems = useMemo(
     () => pageItems.filter((file) => !isRuntimeOnlyAuthFile(file)),
     [pageItems]
+  );
+  const codexQuota = useQuotaStore((state) => state.codexQuota);
+  const quotaUsageContext = useCodexQuotaUsageContext(
+    quotaFilterType === 'codex' && pageItems.length > 0 && !disableControls,
+    pageItems,
+    codexQuota as Record<string, QuotaStatusState>
   );
   const selectableFilteredItems = useMemo(
     () => sorted.filter((file) => !isRuntimeOnlyAuthFile(file)),
@@ -830,6 +840,7 @@ export function AuthFilesPage() {
                     deleting={deleting}
                     statusUpdating={statusUpdating}
                     quotaFilterType={quotaFilterType}
+                    quotaUsageContext={quotaUsageContext}
                     keyStats={keyStats}
                     statusBarCache={statusBarCache}
                     onShowModels={showModels}

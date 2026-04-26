@@ -8,6 +8,7 @@ import {
   GEMINI_CLI_CONFIG,
   KIMI_CONFIG
 } from '@/components/quota';
+import type { QuotaUsageContext } from '@/components/quota';
 import { useNotificationStore, useQuotaStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
@@ -33,10 +34,11 @@ export type AuthFileQuotaSectionProps = {
   file: AuthFileItem;
   quotaType: QuotaProviderType;
   disableControls: boolean;
+  usageContext?: QuotaUsageContext;
 };
 
 export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
-  const { file, quotaType, disableControls } = props;
+  const { file, quotaType, disableControls, usageContext } = props;
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
 
@@ -96,7 +98,16 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
 
   const config = getQuotaConfig(quotaType) as unknown as {
     i18nPrefix: string;
-    renderQuotaItems: (quota: unknown, t: TFunction, helpers: unknown) => unknown;
+    renderQuotaItems: (
+      quota: unknown,
+      t: TFunction,
+      helpers: {
+        styles: typeof styles;
+        QuotaProgressBar: typeof QuotaProgressBar;
+        item: AuthFileItem;
+        usageContext?: QuotaUsageContext;
+      }
+    ) => unknown;
   };
 
   const quotaStatus = quota?.status ?? 'idle';
@@ -127,7 +138,12 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
           })}
         </div>
       ) : quota ? (
-        (config.renderQuotaItems(quota, t, { styles, QuotaProgressBar }) as ReactNode)
+        (config.renderQuotaItems(quota, t, {
+          styles,
+          QuotaProgressBar,
+          item: file,
+          usageContext
+        }) as ReactNode)
       ) : (
         <div className={styles.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
       )}
