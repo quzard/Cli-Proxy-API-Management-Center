@@ -118,13 +118,21 @@ export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
 
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
-const OPENAI_MODEL_DATE_REGEX = /-\d{8}$/;
+const OPENAI_MODEL_DATE_REGEX = /(?:-\d{8}|-\d{4}-\d{2}-\d{2})$/;
 const OPENAI_MODEL_BASE_REGEX = /^(gpt-\d+(?:\.\d+)?)(?:-|$)/;
 const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000,
 };
+
+const openAIModelPrice = (prompt: number, completion: number, cacheRead = 0): ModelPrice => ({
+  prompt,
+  completion,
+  cache: cacheRead,
+  cacheRead,
+  cacheCreation: prompt,
+});
 
 export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
   'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
@@ -146,44 +154,54 @@ export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
     cacheRead: 0.03,
     cacheCreation: 0.3,
   },
-  'gpt-5.1': { prompt: 1.25, completion: 10, cache: 0.125, cacheRead: 0.125, cacheCreation: 1.25 },
-  'gpt-5.2': { prompt: 1.75, completion: 14, cache: 0.175, cacheRead: 0.175, cacheCreation: 1.75 },
-  'gpt-5.4': { prompt: 2.5, completion: 15, cache: 0.25, cacheRead: 0.25, cacheCreation: 2.5 },
-  'gpt-5.4-mini': {
-    prompt: 0.75,
-    completion: 4.5,
-    cache: 0.075,
-    cacheRead: 0.075,
-    cacheCreation: 0.75,
-  },
-  'gpt-5.4-nano': {
-    prompt: 0.2,
-    completion: 1.25,
-    cache: 0.02,
-    cacheRead: 0.02,
-    cacheCreation: 0.2,
-  },
-  'gpt-5.1-codex': {
-    prompt: 1.5,
-    completion: 12,
-    cache: 0.15,
-    cacheRead: 0.15,
-    cacheCreation: 1.5,
-  },
-  'gpt-5.2-codex': {
-    prompt: 1.75,
-    completion: 14,
-    cache: 0.175,
-    cacheRead: 0.175,
-    cacheCreation: 1.75,
-  },
-  'gpt-5.3-codex': {
-    prompt: 1.5,
-    completion: 12,
-    cache: 0.15,
-    cacheRead: 0.15,
-    cacheCreation: 1.5,
-  },
+  'gpt-5.5': openAIModelPrice(5, 30, 0.5),
+  'gpt-5.5-pro': openAIModelPrice(30, 180),
+  'gpt-5.4': openAIModelPrice(2.5, 15, 0.25),
+  'gpt-5.4-mini': openAIModelPrice(0.75, 4.5, 0.075),
+  'gpt-5.4-nano': openAIModelPrice(0.2, 1.25, 0.02),
+  'gpt-5.4-pro': openAIModelPrice(30, 180),
+  'gpt-5.3-chat-latest': openAIModelPrice(1.75, 14, 0.175),
+  'gpt-5.3-codex': openAIModelPrice(1.75, 14, 0.175),
+  'gpt-5.2': openAIModelPrice(1.75, 14, 0.175),
+  'gpt-5.2-pro': openAIModelPrice(21, 168),
+  'gpt-5.2-chat-latest': openAIModelPrice(1.75, 14, 0.175),
+  'gpt-5.2-codex': openAIModelPrice(1.75, 14, 0.175),
+  'gpt-5.1': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5.1-chat-latest': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5.1-codex-max': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5.1-codex': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5.1-codex-mini': openAIModelPrice(0.25, 2, 0.025),
+  'gpt-5': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5-chat-latest': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5-codex': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5-search-api': openAIModelPrice(1.25, 10, 0.125),
+  'gpt-5-mini': openAIModelPrice(0.25, 2, 0.025),
+  'gpt-5-nano': openAIModelPrice(0.05, 0.4, 0.005),
+  'gpt-5-pro': openAIModelPrice(15, 120),
+  'chatgpt-4o-latest': openAIModelPrice(5, 15),
+  'gpt-4.1': openAIModelPrice(2, 8, 0.5),
+  'gpt-4.1-mini': openAIModelPrice(0.4, 1.6, 0.1),
+  'gpt-4.1-nano': openAIModelPrice(0.1, 0.4, 0.025),
+  'gpt-4o': openAIModelPrice(2.5, 10, 1.25),
+  'gpt-4o-2024-05-13': openAIModelPrice(5, 15),
+  'gpt-4o-mini': openAIModelPrice(0.15, 0.6, 0.075),
+  'gpt-4o-search-preview': openAIModelPrice(2.5, 10),
+  'gpt-4o-mini-search-preview': openAIModelPrice(0.15, 0.6),
+  'gpt-4-turbo-2024-04-09': openAIModelPrice(10, 30),
+  'gpt-4-0125-preview': openAIModelPrice(10, 30),
+  'gpt-4-1106-preview': openAIModelPrice(10, 30),
+  'gpt-4-1106-vision-preview': openAIModelPrice(10, 30),
+  'gpt-4-0613': openAIModelPrice(30, 60),
+  'gpt-4-0314': openAIModelPrice(30, 60),
+  'gpt-4-32k': openAIModelPrice(60, 120),
+  'gpt-3.5-turbo': openAIModelPrice(0.5, 1.5),
+  'gpt-3.5-turbo-0125': openAIModelPrice(0.5, 1.5),
+  'gpt-3.5-turbo-1106': openAIModelPrice(1, 2),
+  'gpt-3.5-turbo-0613': openAIModelPrice(1.5, 2),
+  'gpt-3.5-0301': openAIModelPrice(1.5, 2),
+  'gpt-3.5-turbo-instruct': openAIModelPrice(1.5, 2),
+  'gpt-3.5-turbo-16k-0613': openAIModelPrice(3, 4),
+  'codex-mini-latest': openAIModelPrice(1.5, 6, 0.375),
 };
 
 const DEFAULT_MODEL_PRICE_KEYS = new Set(Object.keys(DEFAULT_MODEL_PRICES));
@@ -420,20 +438,11 @@ const generateOpenAIModelVariants = (model: string): string[] => {
 };
 
 const matchOpenAIBillingModel = (model: string): string | null => {
-  if (!model.includes('gpt-5') && !model.includes('codex')) {
+  if (!model.includes('gpt-') && !model.includes('chatgpt-') && !model.includes('codex')) {
     return null;
   }
 
   if (model.startsWith('gpt-5.3-codex-spark')) {
-    return 'gpt-5.1-codex';
-  }
-
-  if (
-    model === 'codex-mini-latest' ||
-    model.startsWith('gpt-5.1-codex') ||
-    model.startsWith('gpt-5.1-codex-max') ||
-    model.startsWith('gpt-5.1-codex-mini')
-  ) {
     return 'gpt-5.1-codex';
   }
 
@@ -443,23 +452,63 @@ const matchOpenAIBillingModel = (model: string): string | null => {
     }
   }
 
-  if (model.startsWith('gpt-5.3-codex')) {
-    return 'gpt-5.2-codex';
+  const prefixMappings: Array<[string, string]> = [
+    ['gpt-5.5-pro', 'gpt-5.5-pro'],
+    ['gpt-5.5', 'gpt-5.5'],
+    ['gpt-5.4-mini', 'gpt-5.4-mini'],
+    ['gpt-5.4-nano', 'gpt-5.4-nano'],
+    ['gpt-5.4-pro', 'gpt-5.4-pro'],
+    ['gpt-5.4', 'gpt-5.4'],
+    ['gpt-5.3-chat', 'gpt-5.3-chat-latest'],
+    ['gpt-5.3-codex', 'gpt-5.3-codex'],
+    ['gpt-5.2-chat', 'gpt-5.2-chat-latest'],
+    ['gpt-5.2-codex', 'gpt-5.2-codex'],
+    ['gpt-5.2-pro', 'gpt-5.2-pro'],
+    ['gpt-5.2', 'gpt-5.2'],
+    ['gpt-5.1-codex-mini', 'gpt-5.1-codex-mini'],
+    ['gpt-5.1-codex-max', 'gpt-5.1-codex-max'],
+    ['gpt-5.1-codex', 'gpt-5.1-codex'],
+    ['gpt-5.1-chat', 'gpt-5.1-chat-latest'],
+    ['gpt-5.1', 'gpt-5.1'],
+    ['gpt-5-codex', 'gpt-5-codex'],
+    ['gpt-5-search', 'gpt-5-search-api'],
+    ['gpt-5-chat', 'gpt-5-chat-latest'],
+    ['gpt-5-mini', 'gpt-5-mini'],
+    ['gpt-5-nano', 'gpt-5-nano'],
+    ['gpt-5-pro', 'gpt-5-pro'],
+    ['gpt-5', 'gpt-5'],
+    ['chatgpt-4o', 'chatgpt-4o-latest'],
+    ['gpt-4.1-mini', 'gpt-4.1-mini'],
+    ['gpt-4.1-nano', 'gpt-4.1-nano'],
+    ['gpt-4.1', 'gpt-4.1'],
+    ['gpt-4o-mini-search-preview', 'gpt-4o-mini-search-preview'],
+    ['gpt-4o-search-preview', 'gpt-4o-search-preview'],
+    ['gpt-4o-mini', 'gpt-4o-mini'],
+    ['gpt-4o', 'gpt-4o'],
+    ['gpt-4-turbo', 'gpt-4-turbo-2024-04-09'],
+    ['gpt-4-1106-vision-preview', 'gpt-4-1106-vision-preview'],
+    ['gpt-4-1106-preview', 'gpt-4-1106-preview'],
+    ['gpt-4-0125-preview', 'gpt-4-0125-preview'],
+    ['gpt-4-0613', 'gpt-4-0613'],
+    ['gpt-4-0314', 'gpt-4-0314'],
+    ['gpt-4-32k', 'gpt-4-32k'],
+    ['gpt-3.5-turbo-16k', 'gpt-3.5-turbo-16k-0613'],
+    ['gpt-3.5-turbo-0125', 'gpt-3.5-turbo-0125'],
+    ['gpt-3.5-turbo-1106', 'gpt-3.5-turbo-1106'],
+    ['gpt-3.5-turbo-0613', 'gpt-3.5-turbo-0613'],
+    ['gpt-3.5-turbo-instruct', 'gpt-3.5-turbo-instruct'],
+    ['gpt-3.5-turbo', 'gpt-3.5-turbo'],
+    ['gpt-3.5-0301', 'gpt-3.5-0301'],
+    ['codex-mini-latest', 'codex-mini-latest'],
+  ];
+
+  for (const [prefix, priceKey] of prefixMappings) {
+    if (model.startsWith(prefix) && DEFAULT_MODEL_PRICE_KEYS.has(priceKey)) {
+      return priceKey;
+    }
   }
 
-  if (model.startsWith('gpt-5.4-mini')) {
-    return 'gpt-5.4-mini';
-  }
-
-  if (model.startsWith('gpt-5.4-nano')) {
-    return 'gpt-5.4-nano';
-  }
-
-  if (model.startsWith('gpt-5.4')) {
-    return 'gpt-5.4';
-  }
-
-  return 'gpt-5.1-codex';
+  return null;
 };
 
 export function resolveModelPriceKey(
