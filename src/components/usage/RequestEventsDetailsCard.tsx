@@ -12,9 +12,6 @@ import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver
 import { parseTimestampMs } from '@/utils/timestamp';
 import {
   collectUsageDetails,
-  extractCachedTokensTotal,
-  extractCacheCreationTokens,
-  extractCacheReadTokens,
   extractLatencyMs,
   extractTotalTokens,
   formatDurationMs,
@@ -39,16 +36,10 @@ type RequestEventRow = {
   sourceType: string;
   authIndex: string;
   failed: boolean;
-  thinkingEffortRaw: string;
-  thinkingEffortLabel: string;
-  serviceTierRaw: string;
-  serviceTierLabel: string;
   latencyMs: number | null;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
   cachedTokens: number;
   totalTokens: number;
 };
@@ -74,64 +65,6 @@ const encodeCsv = (value: string | number): string => {
   const trimmedLeft = text.replace(/^\s+/, '');
   const safeText = trimmedLeft && /^[=+\-@]/.test(trimmedLeft) ? `'${text}` : text;
   return `"${safeText.replace(/"/g, '""')}"`;
-};
-
-const formatThinkingEffort = (
-  value: unknown,
-  t: ReturnType<typeof useTranslation>['t']
-): { raw: string; label: string } => {
-  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (!raw) {
-    return { raw: '', label: '-' };
-  }
-
-  const budgetMatch = raw.match(/^budget:(\d+)$/);
-  if (budgetMatch) {
-    return {
-      raw,
-      label: t('usage_stats.thinking_effort_budget', {
-        value: Number(budgetMatch[1]).toLocaleString(),
-      }),
-    };
-  }
-
-  const labelMap: Record<string, string> = {
-    none: t('usage_stats.thinking_effort_none'),
-    auto: t('usage_stats.thinking_effort_auto'),
-    enabled: t('usage_stats.thinking_effort_enabled'),
-    minimal: t('usage_stats.thinking_effort_minimal'),
-    low: t('usage_stats.thinking_effort_low'),
-    medium: t('usage_stats.thinking_effort_medium'),
-    high: t('usage_stats.thinking_effort_high'),
-    xhigh: t('usage_stats.thinking_effort_xhigh'),
-    max: t('usage_stats.thinking_effort_max'),
-  };
-
-  return {
-    raw,
-    label: labelMap[raw] ?? raw,
-  };
-};
-
-const formatServiceTier = (
-  value: unknown,
-  t: ReturnType<typeof useTranslation>['t']
-): { raw: string; label: string } => {
-  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (!raw) {
-    return { raw: '', label: '-' };
-  }
-
-  const labelMap: Record<string, string> = {
-    priority: t('usage_stats.service_tier_priority'),
-    standard: t('usage_stats.service_tier_standard'),
-    default: t('usage_stats.service_tier_default'),
-  };
-
-  return {
-    raw,
-    label: labelMap[raw] ?? raw,
-  };
 };
 
 export function RequestEventsDetailsCard({
@@ -194,64 +127,63 @@ export function RequestEventsDetailsCard({
   const rows = useMemo<RequestEventRow[]>(() => {
     const details = collectUsageDetails(usage);
 
-    const baseRows = details.map((detail, index) => {
-      const timestamp = detail.timestamp;
-      const timestampMs =
-        typeof detail.__timestampMs === 'number' && detail.__timestampMs > 0
-          ? detail.__timestampMs
-          : parseTimestampMs(timestamp);
-      const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
-      const sourceRaw = String(detail.source ?? '').trim();
-      const authIndexRaw = detail.auth_index as unknown;
-      const authIndex =
-        authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
-          ? '-'
-          : String(authIndexRaw);
-      const sourceInfo = resolveSourceDisplay(sourceRaw, authIndexRaw, sourceInfoMap, authFileMap);
-      const source = sourceInfo.displayName;
-      const sourceKey = sourceInfo.identityKey ?? `source:${sourceRaw || source}`;
-      const sourceType = sourceInfo.type;
-      const model = String(detail.__modelName ?? '').trim() || '-';
-      const thinkingEffort = formatThinkingEffort(detail.thinking_effort, t);
-      const serviceTier = formatServiceTier(detail.service_tier, t);
-      const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
-      const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
-      const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
-      const cacheReadTokens = extractCacheReadTokens(detail.tokens);
-      const cacheCreationTokens = extractCacheCreationTokens(detail.tokens);
-      const cachedTokens = extractCachedTokensTotal(detail.tokens);
-      const totalTokens = Math.max(
-        toNumber(detail.tokens?.total_tokens),
-        extractTotalTokens(detail)
-      );
-      const latencyMs = extractLatencyMs(detail);
+    const baseRows = details
+      .map((detail, index) => {
+        const timestamp = detail.timestamp;
+        const timestampMs =
+          typeof detail.__timestampMs === 'number' && detail.__timestampMs > 0
+            ? detail.__timestampMs
+            : parseTimestampMs(timestamp);
+        const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
+        const sourceRaw = String(detail.source ?? '').trim();
+        const authIndexRaw = detail.auth_index as unknown;
+        const authIndex =
+          authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
+            ? '-'
+            : String(authIndexRaw);
+        const sourceInfo = resolveSourceDisplay(
+          sourceRaw,
+          authIndexRaw,
+          sourceInfoMap,
+          authFileMap
+        );
+        const source = sourceInfo.displayName;
+        const sourceKey = sourceInfo.identityKey ?? `source:${sourceRaw || source}`;
+        const sourceType = sourceInfo.type;
+        const model = String(detail.__modelName ?? '').trim() || '-';
+        const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
+        const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
+        const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
+        const cachedTokens = Math.max(
+          Math.max(toNumber(detail.tokens?.cached_tokens), 0),
+          Math.max(toNumber(detail.tokens?.cache_tokens), 0)
+        );
+        const totalTokens = Math.max(
+          toNumber(detail.tokens?.total_tokens),
+          extractTotalTokens(detail)
+        );
+        const latencyMs = extractLatencyMs(detail);
 
-      return {
-        id: `${timestamp}-${model}-${sourceKey}-${authIndex}-${index}`,
-        timestamp,
-        timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
-        timestampLabel: date ? date.toLocaleString(i18n.language) : timestamp || '-',
-        model,
-        sourceKey,
-        sourceRaw: sourceRaw || '-',
-        source,
-        sourceType,
-        authIndex,
-        failed: detail.failed === true,
-        thinkingEffortRaw: thinkingEffort.raw,
-        thinkingEffortLabel: thinkingEffort.label,
-        serviceTierRaw: serviceTier.raw,
-        serviceTierLabel: serviceTier.label,
-        latencyMs,
-        inputTokens,
-        outputTokens,
-        reasoningTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-        cachedTokens,
-        totalTokens,
-      };
-    });
+        return {
+          id: `${timestamp}-${model}-${sourceKey}-${authIndex}-${index}`,
+          timestamp,
+          timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
+          timestampLabel: date ? date.toLocaleString(i18n.language) : timestamp || '-',
+          model,
+          sourceKey,
+          sourceRaw: sourceRaw || '-',
+          source,
+          sourceType,
+          authIndex,
+          failed: detail.failed === true,
+          latencyMs,
+          inputTokens,
+          outputTokens,
+          reasoningTokens,
+          cachedTokens,
+          totalTokens,
+        };
+      });
 
     const sourceLabelKeyMap = new Map<string, Set<string>>();
     baseRows.forEach((row) => {
@@ -287,7 +219,7 @@ export function RequestEventsDetailsCard({
         source: buildDisambiguatedSourceLabel(row),
       }))
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, i18n.language, sourceInfoMap, t, usage]);
+  }, [authFileMap, i18n.language, sourceInfoMap, usage]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
 
@@ -386,14 +318,10 @@ export function RequestEventsDetailsCard({
       'source_raw',
       'auth_index',
       'result',
-      'thinking_effort',
-      'service_tier',
       ...(hasLatencyData ? ['latency_ms'] : []),
       'input_tokens',
       'output_tokens',
       'reasoning_tokens',
-      'cache_read_tokens',
-      'cache_creation_tokens',
       'cached_tokens',
       'total_tokens',
     ];
@@ -406,14 +334,10 @@ export function RequestEventsDetailsCard({
         row.sourceRaw,
         row.authIndex,
         row.failed ? 'failed' : 'success',
-        row.thinkingEffortRaw,
-        row.serviceTierRaw,
         ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
         row.inputTokens,
         row.outputTokens,
         row.reasoningTokens,
-        row.cacheReadTokens,
-        row.cacheCreationTokens,
         row.cachedTokens,
         row.totalTokens,
       ]
@@ -439,15 +363,11 @@ export function RequestEventsDetailsCard({
       source_raw: row.sourceRaw,
       auth_index: row.authIndex,
       failed: row.failed,
-      thinking_effort: row.thinkingEffortRaw || null,
-      service_tier: row.serviceTierRaw || null,
       ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
       tokens: {
         input_tokens: row.inputTokens,
         output_tokens: row.outputTokens,
         reasoning_tokens: row.reasoningTokens,
-        cache_read_tokens: row.cacheReadTokens,
-        cache_creation_tokens: row.cacheCreationTokens,
         cached_tokens: row.cachedTokens,
         total_tokens: row.totalTokens,
       },
@@ -571,14 +491,10 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_auth_index')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
-                  <th>{t('usage_stats.thinking_effort')}</th>
-                  <th>{t('usage_stats.service_tier')}</th>
                   {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
                   <th>{t('usage_stats.input_tokens')}</th>
                   <th>{t('usage_stats.output_tokens')}</th>
                   <th>{t('usage_stats.reasoning_tokens')}</th>
-                  <th>{t('usage_stats.cache_read_tokens')}</th>
-                  <th>{t('usage_stats.cache_creation_tokens')}</th>
                   <th>{t('usage_stats.cached_tokens')}</th>
                   <th>{t('usage_stats.total_tokens')}</th>
                 </tr>
@@ -610,16 +526,12 @@ export function RequestEventsDetailsCard({
                         {row.failed ? t('stats.failure') : t('stats.success')}
                       </span>
                     </td>
-                    <td title={row.thinkingEffortLabel}>{row.thinkingEffortLabel}</td>
-                    <td title={row.serviceTierLabel}>{row.serviceTierLabel}</td>
                     {hasLatencyData && (
                       <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
                     )}
                     <td>{row.inputTokens.toLocaleString()}</td>
                     <td>{row.outputTokens.toLocaleString()}</td>
                     <td>{row.reasoningTokens.toLocaleString()}</td>
-                    <td>{row.cacheReadTokens.toLocaleString()}</td>
-                    <td>{row.cacheCreationTokens.toLocaleString()}</td>
                     <td>{row.cachedTokens.toLocaleString()}</td>
                     <td>{row.totalTokens.toLocaleString()}</td>
                   </tr>

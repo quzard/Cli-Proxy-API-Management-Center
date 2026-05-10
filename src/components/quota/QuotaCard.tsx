@@ -15,18 +15,6 @@ export interface QuotaStatusState {
   status: QuotaStatus;
   error?: string;
   errorStatus?: number;
-  loadedAt?: number;
-}
-
-export interface QuotaPeriodSummary {
-  requests: number;
-  tokens: number;
-  cost: number;
-}
-
-export interface QuotaUsageContext {
-  periodSummaries: Record<string, QuotaPeriodSummary>;
-  usageLoading: boolean;
 }
 
 export interface QuotaProgressBarProps {
@@ -66,8 +54,6 @@ export function QuotaProgressBar({
 export interface QuotaRenderHelpers {
   styles: typeof styles;
   QuotaProgressBar: (props: QuotaProgressBarProps) => ReactElement;
-  item: AuthFileItem;
-  usageContext?: QuotaUsageContext;
 }
 
 interface QuotaCardProps<TState extends QuotaStatusState> {
@@ -80,7 +66,6 @@ interface QuotaCardProps<TState extends QuotaStatusState> {
   defaultType: string;
   canRefresh?: boolean;
   onRefresh?: () => void;
-  usageContext?: QuotaUsageContext;
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
 
@@ -94,7 +79,6 @@ export function QuotaCard<TState extends QuotaStatusState>({
   defaultType,
   canRefresh = false,
   onRefresh,
-  usageContext,
   renderQuotaItems
 }: QuotaCardProps<TState>) {
   const { t } = useTranslation();
@@ -159,7 +143,7 @@ export function QuotaCard<TState extends QuotaStatusState>({
             })}
           </div>
         ) : quota ? (
-          renderQuotaItems(quota, t, { styles, QuotaProgressBar, item, usageContext })
+          renderQuotaItems(quota, t, { styles, QuotaProgressBar })
         ) : (
           <div className={styles.quotaMessage}>{t(idleMessageKey)}</div>
         )}

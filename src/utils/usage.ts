@@ -47,29 +47,16 @@ export interface RateStats {
   tokenCount: number;
 }
 
-export interface ModelPriceTier {
+export interface ModelPrice {
   prompt: number;
   completion: number;
   cache: number;
-  cacheRead?: number;
-  cacheCreation?: number;
-}
-
-export interface ModelPrice extends ModelPriceTier {
-  priority?: ModelPriceTier;
-}
-
-export interface SharedModelPricesPayload {
-  prices: Record<string, ModelPrice>;
-  disabledDefaultModels: string[];
 }
 
 export interface UsageDetail {
   timestamp: string;
   source: string;
   auth_index: string | number | null;
-  thinking_effort?: string;
-  service_tier?: string;
   latency_ms?: number;
   tokens: {
     input_tokens: number;
@@ -77,8 +64,6 @@ export interface UsageDetail {
     reasoning_tokens: number;
     cached_tokens: number;
     cache_tokens?: number;
-    cache_read_tokens?: number;
-    cache_creation_tokens?: number;
     total_tokens: number;
   };
   failed: boolean;
@@ -90,7 +75,6 @@ export interface UsageDetailWithEndpoint extends UsageDetail {
   __endpoint: string;
   __endpointMethod?: string;
   __endpointPath?: string;
-  __requestId?: string;
   __timestampMs: number;
 }
 
@@ -122,575 +106,16 @@ export interface ModelStatsSummary {
 export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
 
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
+const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
-const OPENAI_MODEL_DATE_REGEX = /(?:-\d{8}|-\d{4}-\d{2}-\d{2})$/;
-const OPENAI_MODEL_BASE_REGEX = /^(gpt-\d+(?:\.\d+)?)(?:-|$)/;
 const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000,
 };
 
-const openAIModelPriceTier = (
-  prompt: number,
-  completion: number,
-  cacheRead = 0
-): ModelPriceTier => ({
-  prompt,
-  completion,
-  cache: cacheRead,
-  cacheRead,
-  cacheCreation: prompt,
-});
-
-const openAIModelPrice = (
-  prompt: number,
-  completion: number,
-  cacheRead = 0,
-  priority?: ModelPriceTier
-): ModelPrice => ({
-  ...openAIModelPriceTier(prompt, completion, cacheRead),
-  ...(priority ? { priority } : {}),
-});
-
-const GPT_5_5_PRIORITY = openAIModelPriceTier(12.5, 75, 1.25);
-const GPT_5_4_PRIORITY = openAIModelPriceTier(5, 30, 0.5);
-const GPT_5_4_MINI_PRIORITY = openAIModelPriceTier(1.5, 9, 0.15);
-const GPT_5_2_PRIORITY = openAIModelPriceTier(3.5, 28, 0.35);
-const GPT_5_1_PRIORITY = openAIModelPriceTier(2.5, 20, 0.25);
-const GPT_5_PRIORITY = openAIModelPriceTier(2.5, 20, 0.25);
-const GPT_5_MINI_PRIORITY = openAIModelPriceTier(0.45, 3.6, 0.045);
-const GPT_4_1_PRIORITY = openAIModelPriceTier(3.5, 14, 0.875);
-const GPT_4_1_MINI_PRIORITY = openAIModelPriceTier(0.7, 2.8, 0.175);
-const GPT_4_1_NANO_PRIORITY = openAIModelPriceTier(0.2, 0.8, 0.05);
-const GPT_4O_PRIORITY = openAIModelPriceTier(4.25, 17, 2.125);
-const GPT_4O_2024_05_13_PRIORITY = openAIModelPriceTier(8.75, 26.25);
-const GPT_4O_MINI_PRIORITY = openAIModelPriceTier(0.25, 1, 0.125);
-
-export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
-  'claude-opus-4.5': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
-  'claude-opus-4.6': { prompt: 5, completion: 25, cache: 0.5, cacheRead: 0.5, cacheCreation: 6.25 },
-  'claude-sonnet-4': { prompt: 3, completion: 15, cache: 0.3, cacheRead: 0.3, cacheCreation: 3.75 },
-  'claude-3-5-sonnet': {
-    prompt: 3,
-    completion: 15,
-    cache: 0.3,
-    cacheRead: 0.3,
-    cacheCreation: 3.75,
-  },
-  'claude-3-5-haiku': { prompt: 1, completion: 5, cache: 0.1, cacheRead: 0.1, cacheCreation: 1.25 },
-  'claude-3-opus': { prompt: 15, completion: 75, cache: 1.5, cacheRead: 1.5, cacheCreation: 18.75 },
-  'claude-3-haiku': {
-    prompt: 0.25,
-    completion: 1.25,
-    cache: 0.03,
-    cacheRead: 0.03,
-    cacheCreation: 0.3,
-  },
-  'gpt-5.5': openAIModelPrice(5, 30, 0.5, GPT_5_5_PRIORITY),
-  'gpt-5.5-pro': openAIModelPrice(30, 180),
-  'gpt-5.4': openAIModelPrice(2.5, 15, 0.25, GPT_5_4_PRIORITY),
-  'gpt-5.4-mini': openAIModelPrice(0.75, 4.5, 0.075, GPT_5_4_MINI_PRIORITY),
-  'gpt-5.4-nano': openAIModelPrice(0.2, 1.25, 0.02),
-  'gpt-5.4-pro': openAIModelPrice(30, 180),
-  'gpt-5.3-chat-latest': openAIModelPrice(1.75, 14, 0.175),
-  'gpt-5.3-codex': openAIModelPrice(1.75, 14, 0.175),
-  'gpt-5.2': openAIModelPrice(1.75, 14, 0.175, GPT_5_2_PRIORITY),
-  'gpt-5.2-pro': openAIModelPrice(21, 168),
-  'gpt-5.2-chat-latest': openAIModelPrice(1.75, 14, 0.175, GPT_5_2_PRIORITY),
-  'gpt-5.2-codex': openAIModelPrice(1.75, 14, 0.175, GPT_5_2_PRIORITY),
-  'gpt-5.1': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
-  'gpt-5.1-chat-latest': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
-  'gpt-5.1-codex-max': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
-  'gpt-5.1-codex': openAIModelPrice(1.25, 10, 0.125, GPT_5_1_PRIORITY),
-  'gpt-5.1-codex-mini': openAIModelPrice(0.25, 2, 0.025),
-  'gpt-5': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
-  'gpt-5-chat-latest': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
-  'gpt-5-codex': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
-  'gpt-5-search-api': openAIModelPrice(1.25, 10, 0.125, GPT_5_PRIORITY),
-  'gpt-5-mini': openAIModelPrice(0.25, 2, 0.025, GPT_5_MINI_PRIORITY),
-  'gpt-5-nano': openAIModelPrice(0.05, 0.4, 0.005),
-  'gpt-5-pro': openAIModelPrice(15, 120),
-  'chatgpt-4o-latest': openAIModelPrice(5, 15),
-  'gpt-4.1': openAIModelPrice(2, 8, 0.5, GPT_4_1_PRIORITY),
-  'gpt-4.1-mini': openAIModelPrice(0.4, 1.6, 0.1, GPT_4_1_MINI_PRIORITY),
-  'gpt-4.1-nano': openAIModelPrice(0.1, 0.4, 0.025, GPT_4_1_NANO_PRIORITY),
-  'gpt-4o': openAIModelPrice(2.5, 10, 1.25, GPT_4O_PRIORITY),
-  'gpt-4o-2024-05-13': openAIModelPrice(5, 15, 0, GPT_4O_2024_05_13_PRIORITY),
-  'gpt-4o-mini': openAIModelPrice(0.15, 0.6, 0.075, GPT_4O_MINI_PRIORITY),
-  'gpt-4o-search-preview': openAIModelPrice(2.5, 10),
-  'gpt-4o-mini-search-preview': openAIModelPrice(0.15, 0.6),
-  'gpt-4-turbo-2024-04-09': openAIModelPrice(10, 30),
-  'gpt-4-0125-preview': openAIModelPrice(10, 30),
-  'gpt-4-1106-preview': openAIModelPrice(10, 30),
-  'gpt-4-1106-vision-preview': openAIModelPrice(10, 30),
-  'gpt-4-0613': openAIModelPrice(30, 60),
-  'gpt-4-0314': openAIModelPrice(30, 60),
-  'gpt-4-32k': openAIModelPrice(60, 120),
-  'gpt-3.5-turbo': openAIModelPrice(0.5, 1.5),
-  'gpt-3.5-turbo-0125': openAIModelPrice(0.5, 1.5),
-  'gpt-3.5-turbo-1106': openAIModelPrice(1, 2),
-  'gpt-3.5-turbo-0613': openAIModelPrice(1.5, 2),
-  'gpt-3.5-0301': openAIModelPrice(1.5, 2),
-  'gpt-3.5-turbo-instruct': openAIModelPrice(1.5, 2),
-  'gpt-3.5-turbo-16k-0613': openAIModelPrice(3, 4),
-  'codex-mini-latest': openAIModelPrice(1.5, 6, 0.375),
-};
-
-const DEFAULT_MODEL_PRICE_KEYS = new Set(Object.keys(DEFAULT_MODEL_PRICES));
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const cloneModelPriceTier = (price: ModelPriceTier): ModelPriceTier => ({ ...price });
-
-const cloneModelPrice = (price: ModelPrice): ModelPrice => ({
-  ...price,
-  ...(price.priority ? { priority: cloneModelPriceTier(price.priority) } : {}),
-});
-
-const cloneDefaultModelPrices = (): Record<string, ModelPrice> =>
-  Object.fromEntries(
-    Object.entries(DEFAULT_MODEL_PRICES).map(([model, price]) => [model, cloneModelPrice(price)])
-  );
-
-const normalizeModelPriceTier = (input: unknown): ModelPriceTier | null => {
-  const priceRecord = isRecord(input) ? input : null;
-  const promptRaw = Number(priceRecord?.prompt);
-  const completionRaw = Number(priceRecord?.completion);
-  const cacheRaw = Number(priceRecord?.cache);
-  const cacheReadRaw = Number(
-    priceRecord?.cacheRead ?? priceRecord?.cache_read ?? priceRecord?.cache
-  );
-  const cacheCreationRaw = Number(
-    priceRecord?.cacheCreation ??
-      priceRecord?.cache_creation ??
-      priceRecord?.cacheWrite ??
-      priceRecord?.cache_write
-  );
-
-  if (
-    !Number.isFinite(promptRaw) &&
-    !Number.isFinite(completionRaw) &&
-    !Number.isFinite(cacheRaw) &&
-    !Number.isFinite(cacheReadRaw) &&
-    !Number.isFinite(cacheCreationRaw)
-  ) {
-    return null;
-  }
-
-  const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
-  const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
-  const cacheRead =
-    Number.isFinite(cacheReadRaw) && cacheReadRaw >= 0
-      ? cacheReadRaw
-      : Number.isFinite(cacheRaw) && cacheRaw >= 0
-        ? cacheRaw
-        : Number.isFinite(promptRaw) && promptRaw >= 0
-          ? promptRaw
-          : prompt;
-  const cacheCreation =
-    Number.isFinite(cacheCreationRaw) && cacheCreationRaw >= 0 ? cacheCreationRaw : cacheRead;
-  const cache = Number.isFinite(cacheRaw) && cacheRaw >= 0 ? cacheRaw : cacheRead;
-
-  return {
-    prompt,
-    completion,
-    cache,
-    cacheRead,
-    cacheCreation,
-  };
-};
-
-const normalizeModelPriceMap = (input: unknown): Record<string, ModelPrice> => {
-  if (!isRecord(input)) {
-    return {};
-  }
-
-  const normalized: Record<string, ModelPrice> = {};
-  Object.entries(input).forEach(([model, price]) => {
-    if (!model) return;
-
-    const priceRecord = isRecord(price) ? price : null;
-    const normalizedTier = normalizeModelPriceTier(priceRecord);
-    if (!normalizedTier) {
-      return;
-    }
-    const priority = normalizeModelPriceTier(priceRecord?.priority);
-
-    normalized[model.trim()] = priority ? { ...normalizedTier, priority } : { ...normalizedTier };
-  });
-
-  return normalized;
-};
-
-export const mergeModelPricesWithDefaults = (
-  prices: Record<string, ModelPrice>,
-  disabledDefaultModels: Iterable<string> = []
-): Record<string, ModelPrice> => {
-  const merged = cloneDefaultModelPrices();
-
-  for (const model of disabledDefaultModels) {
-    const normalizedModel = model.trim();
-    if (!normalizedModel) {
-      continue;
-    }
-    delete merged[normalizedModel];
-  }
-
-  Object.entries(prices).forEach(([model, price]) => {
-    merged[model] = cloneModelPrice(price);
-  });
-
-  return merged;
-};
-
-const normalizeModelLookupCandidate = (modelName: string): string => {
-  let normalized = modelName.trim().toLowerCase();
-  if (!normalized) {
-    return '';
-  }
-
-  normalized = normalized.replace(/[\s_]+/g, '-');
-  normalized = normalized.replace(/^models\//, '');
-  normalized = normalized.replace(/^publishers\/google\/models\//, '');
-
-  const googleModelsIndex = normalized.lastIndexOf('/publishers/google/models/');
-  if (googleModelsIndex !== -1) {
-    normalized = normalized.slice(googleModelsIndex + '/publishers/google/models/'.length);
-  }
-
-  const modelsIndex = normalized.lastIndexOf('/models/');
-  if (modelsIndex !== -1) {
-    normalized = normalized.slice(modelsIndex + '/models/'.length);
-  }
-
-  const lastSlashIndex = normalized.lastIndexOf('/');
-  if (lastSlashIndex !== -1) {
-    normalized = normalized.slice(lastSlashIndex + 1);
-  }
-
-  return normalized;
-};
-
-const buildModelLookupCandidates = (modelName: string): string[] => {
-  const normalized = normalizeModelLookupCandidate(modelName);
-  const trimmed = modelName.trim().toLowerCase();
-  const candidates = [
-    normalized,
-    normalized.replace(/-4-5(?=-|$)/g, '-4.5').replace(/-4-6(?=-|$)/g, '-4.6'),
-    trimmed,
-    trimmed.replace(/^models\//, ''),
-  ];
-
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  candidates.forEach((candidate) => {
-    const value = candidate.trim();
-    if (!value || seen.has(value)) {
-      return;
-    }
-    seen.add(value);
-    result.push(value);
-  });
-
-  return result;
-};
-
-const extractBaseModelName = (model: string): string => {
-  const parts = model.split('-');
-  const result: string[] = [];
-
-  parts.forEach((part) => {
-    if (/^\d{8}$/.test(part)) {
-      return;
-    }
-    if (part.includes(':')) {
-      return;
-    }
-    result.push(part);
-  });
-
-  return result.join('-');
-};
-
-const matchClaudeBillingModel = (model: string): string | null => {
-  if (!model.includes('claude')) {
-    return null;
-  }
-
-  if (model.includes('opus')) {
-    if (model.includes('4.6') || model.includes('4-6')) {
-      return 'claude-opus-4.6';
-    }
-    if (model.includes('4.5') || model.includes('4-5')) {
-      return 'claude-opus-4.5';
-    }
-    return 'claude-3-opus';
-  }
-
-  if (model.includes('sonnet')) {
-    if (model.includes('4.5') || model.includes('4-5')) {
-      return 'claude-sonnet-4';
-    }
-    if (model.includes('4') && !model.includes('3')) {
-      return 'claude-sonnet-4';
-    }
-    if (model.includes('3.5') || model.includes('3-5')) {
-      return 'claude-3-5-sonnet';
-    }
-    return 'claude-3-5-sonnet';
-  }
-
-  if (model.includes('haiku')) {
-    if (model.includes('4.5') || model.includes('4-5')) {
-      return 'claude-3-5-haiku';
-    }
-    if (model.includes('3.5') || model.includes('3-5')) {
-      return 'claude-3-5-haiku';
-    }
-    return 'claude-3-haiku';
-  }
-
-  return 'claude-sonnet-4';
-};
-
-const generateOpenAIModelVariants = (model: string): string[] => {
-  const variants: string[] = [];
-  const seen = new Set<string>();
-
-  const addVariant = (value: string) => {
-    if (!value || value === model || seen.has(value)) {
-      return;
-    }
-    seen.add(value);
-    variants.push(value);
-  };
-
-  const withoutDate = model.replace(OPENAI_MODEL_DATE_REGEX, '');
-  if (withoutDate !== model) {
-    addVariant(withoutDate);
-  }
-
-  const baseMatch = model.match(OPENAI_MODEL_BASE_REGEX);
-  if (baseMatch?.[1]) {
-    addVariant(baseMatch[1]);
-  }
-
-  if (withoutDate !== model) {
-    const baseWithoutDateMatch = withoutDate.match(OPENAI_MODEL_BASE_REGEX);
-    if (baseWithoutDateMatch?.[1]) {
-      addVariant(baseWithoutDateMatch[1]);
-    }
-  }
-
-  return variants;
-};
-
-const matchOpenAIBillingModel = (model: string): string | null => {
-  if (!model.includes('gpt-') && !model.includes('chatgpt-') && !model.includes('codex')) {
-    return null;
-  }
-
-  if (model.startsWith('gpt-5.3-codex-spark')) {
-    return 'gpt-5.1-codex';
-  }
-
-  for (const variant of generateOpenAIModelVariants(model)) {
-    if (DEFAULT_MODEL_PRICE_KEYS.has(variant)) {
-      return variant;
-    }
-  }
-
-  const prefixMappings: Array<[string, string]> = [
-    ['gpt-5.5-pro', 'gpt-5.5-pro'],
-    ['gpt-5.5', 'gpt-5.5'],
-    ['gpt-5.4-mini', 'gpt-5.4-mini'],
-    ['gpt-5.4-nano', 'gpt-5.4-nano'],
-    ['gpt-5.4-pro', 'gpt-5.4-pro'],
-    ['gpt-5.4', 'gpt-5.4'],
-    ['gpt-5.3-chat', 'gpt-5.3-chat-latest'],
-    ['gpt-5.3-codex', 'gpt-5.3-codex'],
-    ['gpt-5.2-chat', 'gpt-5.2-chat-latest'],
-    ['gpt-5.2-codex', 'gpt-5.2-codex'],
-    ['gpt-5.2-pro', 'gpt-5.2-pro'],
-    ['gpt-5.2', 'gpt-5.2'],
-    ['gpt-5.1-codex-mini', 'gpt-5.1-codex-mini'],
-    ['gpt-5.1-codex-max', 'gpt-5.1-codex-max'],
-    ['gpt-5.1-codex', 'gpt-5.1-codex'],
-    ['gpt-5.1-chat', 'gpt-5.1-chat-latest'],
-    ['gpt-5.1', 'gpt-5.1'],
-    ['gpt-5-codex', 'gpt-5-codex'],
-    ['gpt-5-search', 'gpt-5-search-api'],
-    ['gpt-5-chat', 'gpt-5-chat-latest'],
-    ['gpt-5-mini', 'gpt-5-mini'],
-    ['gpt-5-nano', 'gpt-5-nano'],
-    ['gpt-5-pro', 'gpt-5-pro'],
-    ['gpt-5', 'gpt-5'],
-    ['chatgpt-4o', 'chatgpt-4o-latest'],
-    ['gpt-4.1-mini', 'gpt-4.1-mini'],
-    ['gpt-4.1-nano', 'gpt-4.1-nano'],
-    ['gpt-4.1', 'gpt-4.1'],
-    ['gpt-4o-mini-search-preview', 'gpt-4o-mini-search-preview'],
-    ['gpt-4o-search-preview', 'gpt-4o-search-preview'],
-    ['gpt-4o-mini', 'gpt-4o-mini'],
-    ['gpt-4o', 'gpt-4o'],
-    ['gpt-4-turbo', 'gpt-4-turbo-2024-04-09'],
-    ['gpt-4-1106-vision-preview', 'gpt-4-1106-vision-preview'],
-    ['gpt-4-1106-preview', 'gpt-4-1106-preview'],
-    ['gpt-4-0125-preview', 'gpt-4-0125-preview'],
-    ['gpt-4-0613', 'gpt-4-0613'],
-    ['gpt-4-0314', 'gpt-4-0314'],
-    ['gpt-4-32k', 'gpt-4-32k'],
-    ['gpt-3.5-turbo-16k', 'gpt-3.5-turbo-16k-0613'],
-    ['gpt-3.5-turbo-0125', 'gpt-3.5-turbo-0125'],
-    ['gpt-3.5-turbo-1106', 'gpt-3.5-turbo-1106'],
-    ['gpt-3.5-turbo-0613', 'gpt-3.5-turbo-0613'],
-    ['gpt-3.5-turbo-instruct', 'gpt-3.5-turbo-instruct'],
-    ['gpt-3.5-turbo', 'gpt-3.5-turbo'],
-    ['gpt-3.5-0301', 'gpt-3.5-0301'],
-    ['codex-mini-latest', 'codex-mini-latest'],
-  ];
-
-  for (const [prefix, priceKey] of prefixMappings) {
-    if (model.startsWith(prefix) && DEFAULT_MODEL_PRICE_KEYS.has(priceKey)) {
-      return priceKey;
-    }
-  }
-
-  return null;
-};
-
-export function resolveModelPriceKey(
-  modelName: string,
-  modelPrices: Record<string, ModelPrice>
-): string | null {
-  if (!modelName || !Object.keys(modelPrices).length) {
-    return null;
-  }
-
-  const candidates = buildModelLookupCandidates(modelName);
-
-  for (const candidate of candidates) {
-    if (candidate in modelPrices) {
-      return candidate;
-    }
-  }
-
-  for (const candidate of candidates) {
-    const baseName = extractBaseModelName(candidate);
-    if (baseName && baseName in modelPrices) {
-      return baseName;
-    }
-  }
-
-  for (const candidate of candidates) {
-    const claudeMatch = matchClaudeBillingModel(candidate);
-    if (claudeMatch && claudeMatch in modelPrices) {
-      return claudeMatch;
-    }
-
-    const openAIMatch = matchOpenAIBillingModel(candidate);
-    if (openAIMatch && openAIMatch in modelPrices) {
-      return openAIMatch;
-    }
-  }
-
-  return null;
-}
-
-export function getModelPrice(
-  modelName: string,
-  modelPrices: Record<string, ModelPrice>
-): ModelPrice | null {
-  const priceKey = resolveModelPriceKey(modelName, modelPrices);
-  return priceKey ? (modelPrices[priceKey] ?? null) : null;
-}
-
-const getLegacyCachedTokens = (tokensRaw: unknown): number => {
-  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
-  return Math.max(
-    typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-    typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
-  );
-};
-
-const hasExplicitSplitCacheTokens = (tokensRaw: unknown): boolean => {
-  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
-  return (
-    typeof tokens.cache_read_tokens === 'number' || typeof tokens.cache_creation_tokens === 'number'
-  );
-};
-
-export function extractCacheReadTokens(tokensRaw: unknown): number {
-  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
-  if (typeof tokens.cache_read_tokens === 'number') {
-    return Math.max(tokens.cache_read_tokens, 0);
-  }
-  return getLegacyCachedTokens(tokens);
-}
-
-export function extractCacheCreationTokens(tokensRaw: unknown): number {
-  const tokens = isRecord(tokensRaw) ? tokensRaw : {};
-  if (typeof tokens.cache_creation_tokens === 'number') {
-    return Math.max(tokens.cache_creation_tokens, 0);
-  }
-  return 0;
-}
-
-export function extractCachedTokensTotal(tokensRaw: unknown): number {
-  if (hasExplicitSplitCacheTokens(tokensRaw)) {
-    return extractCacheReadTokens(tokensRaw) + extractCacheCreationTokens(tokensRaw);
-  }
-  return getLegacyCachedTokens(tokensRaw);
-}
-
-const getCacheReadPrice = (price: ModelPriceTier): number => {
-  const raw = Number(price.cacheRead ?? price.cache);
-  if (Number.isFinite(raw) && raw >= 0) {
-    return raw;
-  }
-  return Number(price.prompt) || 0;
-};
-
-const getCacheCreationPrice = (price: ModelPriceTier): number => {
-  const raw = Number(price.cacheCreation ?? price.cacheRead ?? price.cache);
-  if (Number.isFinite(raw) && raw >= 0) {
-    return raw;
-  }
-  return Number(price.prompt) || 0;
-};
-
-const isPriorityServiceTier = (value: unknown): boolean =>
-  typeof value === 'string' && value.trim().toLowerCase() === 'priority';
-
-const resolveModelPriceTier = (price: ModelPrice, detail: UsageDetail): ModelPriceTier =>
-  isPriorityServiceTier(detail.service_tier) && price.priority ? price.priority : price;
-
-const extractUsageStringField = (
-  record: Record<string, unknown> | null | undefined,
-  keys: string[]
-): string | undefined => {
-  if (!record) {
-    return undefined;
-  }
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (trimmed) {
-        return trimmed;
-      }
-    }
-  }
-  return undefined;
-};
-
-const extractUsageServiceTier = (
-  record: Record<string, unknown> | null | undefined
-): string | undefined =>
-  extractUsageStringField(record, ['service_tier', 'serviceTier', 'ServiceTier']);
 
 const getApisRecord = (usageData: unknown): Record<string, unknown> | null => {
   const usageRecord = isRecord(usageData) ? usageData : null;
@@ -1127,15 +552,11 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
         details.push({
           timestamp,
           source: normalizeSource(detailRaw.source),
-          auth_index: (detailRaw?.auth_index ??
-            detailRaw?.authIndex ??
-            detailRaw?.AuthIndex ??
-            null) as UsageDetail['auth_index'],
-          thinking_effort:
-            typeof detailRaw.thinking_effort === 'string'
-              ? detailRaw.thinking_effort.trim()
-              : undefined,
-          service_tier: extractUsageServiceTier(detailRaw),
+          auth_index:
+            (detailRaw?.auth_index ??
+              detailRaw?.authIndex ??
+              detailRaw?.AuthIndex ??
+              null) as UsageDetail['auth_index'],
           latency_ms: latencyMs ?? undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
@@ -1205,44 +626,21 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
         const timestampMs = parseTimestampMs(timestamp);
         const tokensRaw = isRecord(detailRaw.tokens) ? detailRaw.tokens : {};
         const latencyMs = extractLatencyMs(detailRaw);
-        const detailMethod =
-          typeof detailRaw.method === 'string' && detailRaw.method.trim()
-            ? detailRaw.method.trim().toUpperCase()
-            : endpointMethod;
-        const detailPath =
-          typeof detailRaw.path === 'string' && detailRaw.path.trim()
-            ? detailRaw.path.trim()
-            : endpointPath;
-        const detailEndpoint =
-          typeof detailRaw.endpoint === 'string' && detailRaw.endpoint.trim()
-            ? detailRaw.endpoint.trim()
-            : detailMethod && detailPath
-              ? `${detailMethod} ${detailPath}`
-              : endpoint;
-        const requestId =
-          typeof detailRaw.request_id === 'string' && detailRaw.request_id.trim()
-            ? detailRaw.request_id.trim()
-            : undefined;
         details.push({
           timestamp,
           source: normalizeSource(detailRaw.source),
-          auth_index: (detailRaw?.auth_index ??
-            detailRaw?.authIndex ??
-            detailRaw?.AuthIndex ??
-            null) as UsageDetail['auth_index'],
-          thinking_effort:
-            typeof detailRaw.thinking_effort === 'string'
-              ? detailRaw.thinking_effort.trim()
-              : undefined,
-          service_tier: extractUsageServiceTier(detailRaw),
+          auth_index:
+            (detailRaw?.auth_index ??
+              detailRaw?.authIndex ??
+              detailRaw?.AuthIndex ??
+              null) as UsageDetail['auth_index'],
           latency_ms: latencyMs ?? undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
           __modelName: modelName,
-          __endpoint: detailEndpoint,
-          __endpointMethod: detailMethod,
-          __endpointPath: detailPath,
-          __requestId: requestId,
+          __endpoint: endpoint,
+          __endpointMethod: endpointMethod,
+          __endpointPath: endpointPath,
           __timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         });
       });
@@ -1268,7 +666,10 @@ export function extractTotalTokens(detail: unknown): number {
   const inputTokens = typeof tokens.input_tokens === 'number' ? tokens.input_tokens : 0;
   const outputTokens = typeof tokens.output_tokens === 'number' ? tokens.output_tokens : 0;
   const reasoningTokens = typeof tokens.reasoning_tokens === 'number' ? tokens.reasoning_tokens : 0;
-  const cachedTokens = extractCachedTokensTotal(tokens);
+  const cachedTokens = Math.max(
+    typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+    typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
+  );
 
   return inputTokens + outputTokens + reasoningTokens + cachedTokens;
 }
@@ -1294,7 +695,10 @@ export function calculateTokenBreakdown(usageData: unknown): TokenBreakdown {
 
   details.forEach((detail) => {
     const tokens = detail.tokens;
-    cachedTokens += extractCachedTokensTotal(tokens);
+    cachedTokens += Math.max(
+      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
+    );
     if (typeof tokens.reasoning_tokens === 'number') {
       reasoningTokens += tokens.reasoning_tokens;
     }
@@ -1373,33 +777,31 @@ export function calculateCost(
   modelPrices: Record<string, ModelPrice>
 ): number {
   const modelName = detail.__modelName || '';
-  const priceKey = resolveModelPriceKey(modelName, modelPrices);
-  const price = getModelPrice(modelName, modelPrices);
+  const price = modelPrices[modelName];
   if (!price) {
     return 0;
   }
-  const priceTier = resolveModelPriceTier(price, detail);
   const tokens = detail.tokens;
   const rawInputTokens = Number(tokens.input_tokens);
   const rawCompletionTokens = Number(tokens.output_tokens);
+  const rawCachedTokensPrimary = Number(tokens.cached_tokens);
+  const rawCachedTokensAlternate = Number(tokens.cache_tokens);
 
   const inputTokens = Number.isFinite(rawInputTokens) ? Math.max(rawInputTokens, 0) : 0;
   const completionTokens = Number.isFinite(rawCompletionTokens)
     ? Math.max(rawCompletionTokens, 0)
     : 0;
-  const cacheReadTokens = extractCacheReadTokens(tokens);
-  const cacheCreationTokens = extractCacheCreationTokens(tokens);
-  const isClaudeModel = (priceKey ?? normalizeModelLookupCandidate(modelName)).startsWith('claude');
-  const promptTokens = isClaudeModel ? inputTokens : Math.max(inputTokens - cacheReadTokens, 0);
+  const cachedTokens = Math.max(
+    Number.isFinite(rawCachedTokensPrimary) ? Math.max(rawCachedTokensPrimary, 0) : 0,
+    Number.isFinite(rawCachedTokensAlternate) ? Math.max(rawCachedTokensAlternate, 0) : 0
+  );
+  const promptTokens = Math.max(inputTokens - cachedTokens, 0);
 
-  const cacheReadPrice = getCacheReadPrice(priceTier);
-  const cacheCreationPrice = getCacheCreationPrice(priceTier);
-  const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(priceTier.prompt) || 0);
-  const cacheReadCost = (cacheReadTokens / TOKENS_PER_PRICE_UNIT) * cacheReadPrice;
-  const cacheCreationCost = (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice;
+  const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.prompt) || 0);
+  const cachedCost = (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0);
   const completionCost =
-    (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(priceTier.completion) || 0);
-  const total = promptCost + cacheReadCost + cacheCreationCost + completionCost;
+    (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
+  const total = promptCost + cachedCost + completionCost;
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
 
@@ -1417,25 +819,71 @@ export function calculateTotalCost(
   return details.reduce((sum, detail) => sum + calculateCost(detail, modelPrices), 0);
 }
 
-export function getDefaultModelPrices(): Record<string, ModelPrice> {
-  return cloneDefaultModelPrices();
+/**
+ * 从 localStorage 加载模型价格
+ */
+export function loadModelPrices(): Record<string, ModelPrice> {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return {};
+    }
+    const raw = localStorage.getItem(MODEL_PRICE_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) {
+      return {};
+    }
+    const normalized: Record<string, ModelPrice> = {};
+    Object.entries(parsed).forEach(([model, price]: [string, unknown]) => {
+      if (!model) return;
+      const priceRecord = isRecord(price) ? price : null;
+      const promptRaw = Number(priceRecord?.prompt);
+      const completionRaw = Number(priceRecord?.completion);
+      const cacheRaw = Number(priceRecord?.cache);
+
+      if (
+        !Number.isFinite(promptRaw) &&
+        !Number.isFinite(completionRaw) &&
+        !Number.isFinite(cacheRaw)
+      ) {
+        return;
+      }
+
+      const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
+      const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
+      const cache =
+        Number.isFinite(cacheRaw) && cacheRaw >= 0
+          ? cacheRaw
+          : Number.isFinite(promptRaw) && promptRaw >= 0
+            ? promptRaw
+            : prompt;
+
+      normalized[model] = {
+        prompt,
+        completion,
+        cache,
+      };
+    });
+    return normalized;
+  } catch {
+    return {};
+  }
 }
 
-export function normalizeSharedModelPrices(input: unknown): Record<string, ModelPrice> {
-  return normalizeModelPriceMap(input);
-}
-
-export function createSharedModelPricesPayload(
-  prices: Record<string, ModelPrice>
-): SharedModelPricesPayload {
-  const normalizedPrices = normalizeModelPriceMap(prices);
-  const disabledDefaultModels = Object.keys(DEFAULT_MODEL_PRICES).filter(
-    (model) => !(model in normalizedPrices)
-  );
-  return {
-    prices: normalizedPrices,
-    disabledDefaultModels,
-  };
+/**
+ * 保存模型价格到 localStorage
+ */
+export function saveModelPrices(prices: Record<string, ModelPrice>): void {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    localStorage.setItem(MODEL_PRICE_STORAGE_KEY, JSON.stringify(prices));
+  } catch {
+    console.warn('保存模型价格失败');
+  }
 }
 
 /**
@@ -1473,7 +921,7 @@ export function getApiStats(
         failureCount += Number(modelData.failure_count) || 0;
       }
 
-      const price = getModelPrice(modelName, modelPrices);
+      const price = modelPrices[modelName];
       if (details.length > 0 && (!hasExplicitCounts || price)) {
         details.forEach((detail) => {
           const detailRecord = isRecord(detail) ? detail : null;
@@ -1487,11 +935,7 @@ export function getApiStats(
 
           if (price && detailRecord) {
             totalCost += calculateCost(
-              {
-                ...(detailRecord as unknown as UsageDetail),
-                service_tier: extractUsageServiceTier(detailRecord),
-                __modelName: modelName,
-              },
+              { ...(detailRecord as unknown as UsageDetail), __modelName: modelName },
               modelPrices
             );
           }
@@ -1574,7 +1018,7 @@ export function getModelStats(
 
       const details = Array.isArray(modelData.details) ? modelData.details : [];
 
-      const price = getModelPrice(modelName, modelPrices);
+      const price = modelPrices[modelName];
 
       const hasExplicitCounts =
         typeof modelData.success_count === 'number' || typeof modelData.failure_count === 'number';
@@ -1599,11 +1043,7 @@ export function getModelStats(
 
           if (price && detailRecord) {
             existing.cost += calculateCost(
-              {
-                ...(detailRecord as unknown as UsageDetail),
-                service_tier: extractUsageServiceTier(detailRecord),
-                __modelName: modelName,
-              },
+              { ...(detailRecord as unknown as UsageDetail), __modelName: modelName },
               modelPrices
             );
           }
@@ -2316,7 +1756,10 @@ export function buildHourlyTokenBreakdown(
     const tokens = detail.tokens;
     const input = typeof tokens.input_tokens === 'number' ? Math.max(tokens.input_tokens, 0) : 0;
     const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
-    const cached = extractCachedTokensTotal(tokens);
+    const cached = Math.max(
+      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
+    );
     const reasoning =
       typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
 
@@ -2354,7 +1797,10 @@ export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeri
     const tokens = detail.tokens;
     const input = typeof tokens.input_tokens === 'number' ? Math.max(tokens.input_tokens, 0) : 0;
     const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
-    const cached = extractCachedTokensTotal(tokens);
+    const cached = Math.max(
+      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
+    );
     const reasoning =
       typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
 

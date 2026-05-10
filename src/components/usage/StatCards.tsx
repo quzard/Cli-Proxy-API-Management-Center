@@ -17,7 +17,6 @@ import {
   formatPerMinuteValue,
   formatUsd,
   collectUsageDetails,
-  extractCachedTokensTotal,
   extractTotalTokens,
   type ModelPrice,
 } from '@/utils/usage';
@@ -92,7 +91,10 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
 
     details.forEach((detail) => {
       const tokens = detail.tokens;
-      cachedTokens += extractCachedTokensTotal(tokens);
+      cachedTokens += Math.max(
+        typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+        typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
+      );
       if (typeof tokens.reasoning_tokens === 'number') {
         reasoningTokens += tokens.reasoning_tokens;
       }
