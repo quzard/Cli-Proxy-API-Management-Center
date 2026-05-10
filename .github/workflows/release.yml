@@ -51,8 +51,9 @@ jobs:
               range="${current_tag}"
             fi
           else
-            release_tag="latest"
-            release_name="latest"
+            timestamp="$(date -u +%Y%m%d-%H%M%S)"
+            release_tag="main-${timestamp}-${short_sha}"
+            release_name="main-${short_sha}"
             build_version="main-${short_sha}"
             previous_commit="$(git rev-parse HEAD^ 2>/dev/null || true)"
             if [ -n "${previous_commit}" ]; then
@@ -94,14 +95,6 @@ jobs:
           name: management-html
           path: dist/management.html
           if-no-files-found: error
-
-      - name: Update latest tag
-        if: github.ref_type == 'branch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git tag -f latest "${GITHUB_SHA}"
-          git push origin refs/tags/latest --force
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
