@@ -29,7 +29,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
 
       - name: Generate release metadata
         id: meta
@@ -76,10 +80,10 @@ jobs:
           echo "build_version=${build_version}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build all-in-one HTML
-        run: npm run build
+        run: bun run build
         env:
           VERSION: ${{ steps.meta.outputs.build_version }}
 
