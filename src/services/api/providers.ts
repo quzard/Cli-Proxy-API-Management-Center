@@ -3,6 +3,7 @@
  */
 
 import { apiClient } from './client';
+import { isRecord } from '@/utils/helpers';
 import {
   normalizeGeminiKeyConfig,
   normalizeOpenAIProvider,
@@ -18,9 +19,6 @@ import type {
 
 const serializeHeaders = (headers?: Record<string, string>) =>
   headers && Object.keys(headers).length ? headers : undefined;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const RESPONSE_ONLY_FIELDS = ['auth-index'] as const;
 
@@ -392,9 +390,6 @@ export const providersApi = {
       )
     ),
 
-  updateGeminiKey: (index: number, value: GeminiKeyConfig) =>
-    apiClient.patch('/gemini-api-key', { index, value: serializeGeminiKey(value) }),
-
   deleteGeminiKey: (apiKey: string, baseUrl?: string) =>
     apiClient.delete(`/gemini-api-key${buildProviderDeleteQuery(apiKey, baseUrl)}`),
 
@@ -417,9 +412,6 @@ export const providersApi = {
         providerKeyIdentity
       )
     ),
-
-  updateCodexConfig: (index: number, value: ProviderKeyConfig) =>
-    apiClient.patch('/codex-api-key', { index, value: serializeProviderKey(value) }),
 
   deleteCodexConfig: (apiKey: string, baseUrl?: string) =>
     apiClient.delete(`/codex-api-key${buildProviderDeleteQuery(apiKey, baseUrl)}`),
@@ -444,9 +436,6 @@ export const providersApi = {
       )
     ),
 
-  updateClaudeConfig: (index: number, value: ProviderKeyConfig) =>
-    apiClient.patch('/claude-api-key', { index, value: serializeProviderKey(value) }),
-
   deleteClaudeConfig: (apiKey: string, baseUrl?: string) =>
     apiClient.delete(`/claude-api-key${buildProviderDeleteQuery(apiKey, baseUrl)}`),
 
@@ -470,9 +459,6 @@ export const providersApi = {
       )
     ),
 
-  updateVertexConfig: (index: number, value: ProviderKeyConfig) =>
-    apiClient.patch('/vertex-api-key', { index, value: serializeVertexKey(value) }),
-
   deleteVertexConfig: (apiKey: string, baseUrl?: string) =>
     apiClient.delete(`/vertex-api-key${buildProviderDeleteQuery(apiKey, baseUrl)}`),
 
@@ -495,9 +481,6 @@ export const providersApi = {
         openAIProviderIdentity
       )
     ),
-
-  updateOpenAIProvider: (index: number, value: OpenAIProviderConfig) =>
-    apiClient.patch('/openai-compatibility', { index, value: serializeOpenAIProvider(value) }),
 
   updateOpenAIProviderDisabled: (index: number, disabled: boolean) =>
     apiClient.patch('/openai-compatibility', { index, value: { disabled } }),

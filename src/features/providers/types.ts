@@ -50,6 +50,10 @@ export interface ProviderResource {
   proxyUrl: string | null;
   prefix: string | null;
   modelCount: number;
+  /** 去重后的模型名(ampcode 为映射两端), 供筛选/搜索用 */
+  models: string[];
+  /** 排序用优先级,未配置时为 0 */
+  priority: number;
   headerCount: number;
   excludedModelCount: number;
   /** 仅 OpenAI 有意义,其它 brand 该字段不展示但保留 */
@@ -64,23 +68,14 @@ export interface ProviderResource {
   raw: unknown;
 }
 
-export interface ProviderGroupIssue {
-  status?: string;
-  message: string;
-}
-
 export interface ProviderGroup {
   id: ProviderBrand;
   resources: ProviderResource[];
-  issue: ProviderGroupIssue | null;
-  /** 描述路径,例如 /ai-providers/gemini,用于 Sheet description */
-  path: string;
 }
 
 export interface ProviderSnapshot {
   fetchedAt: string;
   groups: ProviderGroup[];
-  issues: Array<{ brand: ProviderBrand; message: string }>;
 }
 
 /**
