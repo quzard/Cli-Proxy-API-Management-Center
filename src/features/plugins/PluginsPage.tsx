@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
@@ -21,8 +21,17 @@ import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { pluginsApi } from '@/services/api';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import { getErrorMessage, isRecord } from '@/utils/helpers';
-import type { PluginConfigField, PluginListEntry, PluginListResponse } from '@/types';
-import { getPluginTitle, resolvePluginAssetURL } from './pluginResources';
+import type {
+  PluginConfigField,
+  PluginConfigObject,
+  PluginListEntry,
+  PluginListResponse,
+} from '@/types';
+import {
+  getPluginTitle,
+  notifyPluginResourcesChanged,
+  resolvePluginAssetURL,
+} from './pluginResources';
 import styles from './PluginsPage.module.scss';
 
 type PluginDraftValue = string | boolean | string[];
@@ -33,6 +42,13 @@ interface PluginConfigDraft {
   values: Record<string, PluginDraftValue>;
   errors: Record<string, string>;
 }
+
+const PLUGIN_ENABLE_REFRESH_DELAY_MS = 1600;
+
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 
 function PluginCardLogo({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
@@ -45,28 +61,10 @@ function PluginCardLogo({ src }: { src: string }) {
   );
 }
 
-const cloneRecord = (value: unknown): Record<string, unknown> =>
-  isRecord(value) ? { ...value } : {};
-
 const hasStatus = (error: unknown, status: number) =>
   isRecord(error) && error.status === status;
 
 const normalizeFieldType = (field: PluginConfigField) => field.type.trim().toLowerCase();
-
-const getPluginsConfigMap = (rawConfig: Record<string, unknown>): Record<string, unknown> => {
-  const plugins = rawConfig.plugins;
-  if (!isRecord(plugins)) return {};
-  const configs = plugins.configs;
-  return isRecord(configs) ? configs : {};
-};
-
-const getPluginRawConfig = (
-  rawConfig: Record<string, unknown>,
-  pluginID: string
-): Record<string, unknown> => {
-  const configs = getPluginsConfigMap(rawConfig);
-  return cloneRecord(configs[pluginID]);
-};
 
 const stringifyArrayItem = (value: unknown): string => {
   if (value === undefined || value === null) return '';
@@ -98,7 +96,7 @@ const getFieldDraftValue = (field: PluginConfigField, value: unknown): PluginDra
 
 const buildDraft = (
   plugin: PluginListEntry,
-  currentConfig: Record<string, unknown>
+  currentConfig: PluginConfigObject
 ): PluginConfigDraft => {
   const enabled = typeof currentConfig.enabled === 'boolean' ? currentConfig.enabled : plugin.enabled;
   const priority =
@@ -146,11 +144,11 @@ const parseJSONField = (
 const buildConfigPayload = (
   draft: PluginConfigDraft,
   fields: PluginConfigField[],
-  currentConfig: Record<string, unknown>,
+  currentConfig: PluginConfigObject,
   t: (key: string, options?: Record<string, unknown>) => string
 ) => {
   const errors: Record<string, string> = {};
-  const nextConfig: Record<string, unknown> = { ...currentConfig };
+  const nextConfig: PluginConfigObject = { ...currentConfig };
   const priorityText = draft.priority.trim();
 
   nextConfig.enabled = draft.enabled;
@@ -235,18 +233,19 @@ export function PluginsPage() {
   const navigate = useNavigate();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const apiBase = useAuthStore((state) => state.apiBase);
-  const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const clearConfigCache = useConfigStore((state) => state.clearCache);
   const showNotification = useNotificationStore((state) => state.showNotification);
 
   const [data, setData] = useState<PluginListResponse | null>(null);
-  const [rawConfig, setRawConfig] = useState<Record<string, unknown>>({});
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editingPlugin, setEditingPlugin] = useState<PluginListEntry | null>(null);
+  const [editingConfig, setEditingConfig] = useState<PluginConfigObject>({});
   const [draft, setDraft] = useState<PluginConfigDraft | null>(null);
   const [mutatingID, setMutatingID] = useState('');
+  const [openingConfigID, setOpeningConfigID] = useState('');
+  const configRequestSeq = useRef(0);
 
   const connected = connectionStatus === 'connected';
 
@@ -260,12 +259,8 @@ export function PluginsPage() {
     setLoading(true);
     setError('');
     try {
-      const [plugins, config] = await Promise.all([
-        pluginsApi.list(),
-        fetchConfig(undefined, true).catch(() => null),
-      ]);
+      const plugins = await pluginsApi.list();
       setData(plugins);
-      setRawConfig(config?.raw ?? {});
     } catch (err: unknown) {
       setError(
         hasStatus(err, 404)
@@ -275,7 +270,17 @@ export function PluginsPage() {
     } finally {
       setLoading(false);
     }
-  }, [connected, fetchConfig, t]);
+  }, [connected, t]);
+
+  const loadPluginsAfterMutation = useCallback(
+    async (waitForRegistration: boolean) => {
+      if (waitForRegistration) {
+        await wait(PLUGIN_ENABLE_REFRESH_DELAY_MS);
+      }
+      await loadPlugins();
+    },
+    [loadPlugins]
+  );
 
   useHeaderRefresh(loadPlugins, connected);
 
@@ -320,15 +325,48 @@ export function PluginsPage() {
     [apiBase]
   );
 
-  const openConfigSheet = (plugin: PluginListEntry) => {
-    const currentConfig = getPluginRawConfig(rawConfig, plugin.id);
+  const openConfigSheet = async (plugin: PluginListEntry) => {
+    if (openingConfigID || mutatingID) return;
+
+    const requestSeq = configRequestSeq.current + 1;
+    configRequestSeq.current = requestSeq;
+    setOpeningConfigID(plugin.id);
     setEditingPlugin(plugin);
-    setDraft(buildDraft(plugin, currentConfig));
+    setEditingConfig({});
+    setDraft(null);
+
+    try {
+      const currentConfig = await pluginsApi.getConfig(plugin.id);
+      if (configRequestSeq.current !== requestSeq) return;
+
+      setEditingConfig(currentConfig);
+      setDraft(buildDraft(plugin, currentConfig));
+    } catch (err: unknown) {
+      if (configRequestSeq.current !== requestSeq) return;
+
+      setEditingPlugin(null);
+      setEditingConfig({});
+      setDraft(null);
+      showNotification(
+        hasStatus(err, 404)
+          ? t('plugin_management.config_not_found')
+          : `${t('plugin_management.config_load_failed')}: ${getErrorMessage(
+              err,
+              t('plugin_management.config_load_failed')
+            )}`,
+        'error'
+      );
+    } finally {
+      if (configRequestSeq.current === requestSeq) {
+        setOpeningConfigID('');
+      }
+    }
   };
 
   const closeConfigSheet = () => {
-    if (mutatingID) return;
+    if (mutatingID || openingConfigID) return;
     setEditingPlugin(null);
+    setEditingConfig({});
     setDraft(null);
   };
 
@@ -341,7 +379,8 @@ export function PluginsPage() {
     try {
       await pluginsApi.updateEnabled(plugin.id, enabled);
       clearConfigCache();
-      await loadPlugins();
+      await loadPluginsAfterMutation(enabled);
+      notifyPluginResourcesChanged();
       showNotification(t('plugin_management.toggle_success'), 'success');
     } catch (err: unknown) {
       showNotification(
@@ -357,12 +396,11 @@ export function PluginsPage() {
   };
 
   const handleSaveConfig = async () => {
-    if (!editingPlugin || !draft) return;
-    const currentConfig = getPluginRawConfig(rawConfig, editingPlugin.id);
+    if (!editingPlugin || !draft || openingConfigID || mutatingID) return;
     const { nextConfig, errors } = buildConfigPayload(
       draft,
       editingPlugin.configFields,
-      currentConfig,
+      editingConfig,
       t
     );
 
@@ -376,8 +414,12 @@ export function PluginsPage() {
     try {
       await pluginsApi.putConfig(editingPlugin.id, nextConfig);
       clearConfigCache();
-      await loadPlugins();
+      await loadPluginsAfterMutation(
+        nextConfig.enabled === true && editingPlugin.enabled !== true
+      );
+      notifyPluginResourcesChanged();
       setEditingPlugin(null);
+      setEditingConfig({});
       setDraft(null);
       showNotification(t('plugin_management.save_success'), 'success');
     } catch (err: unknown) {
@@ -665,7 +707,7 @@ export function PluginsPage() {
           variant="secondary"
           size="sm"
           onClick={loadPlugins}
-          disabled={!connected || loading}
+          disabled={!connected || loading || Boolean(mutatingID)}
           loading={loading}
         >
           <IconRefreshCw size={16} />
@@ -706,7 +748,8 @@ export function PluginsPage() {
           {visiblePlugins.map((plugin) => {
             const logo = resolvePluginAsset(plugin.logo || plugin.metadata?.logo || '');
             const github = plugin.metadata?.githubRepository.trim();
-            const mutating = mutatingID === plugin.id;
+            const openingConfig = openingConfigID === plugin.id;
+            const actionBusy = Boolean(mutatingID || openingConfigID);
             const version = plugin.metadata?.version;
             const author = plugin.metadata?.author;
 
@@ -780,14 +823,15 @@ export function PluginsPage() {
                   <ToggleSwitch
                     checked={plugin.enabled}
                     onChange={(enabled) => handleTogglePlugin(plugin, enabled)}
-                    disabled={!connected || mutating}
+                    disabled={!connected || actionBusy}
                     ariaLabel={t('plugin_management.enabled')}
                   />
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => openConfigSheet(plugin)}
-                    disabled={!connected}
+                    disabled={!connected || actionBusy}
+                    loading={openingConfig}
                   >
                     <IconSettings size={14} />
                     {t('plugin_management.edit_config')}
