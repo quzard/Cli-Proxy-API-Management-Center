@@ -1738,11 +1738,30 @@ const formatUsdFromCents = (cents: number | null): string => {
   }).format(cents / 100);
 };
 
-const formatXaiUsageAmount = (billing: XaiBillingSummary): string => {
-  const used = formatUsdFromCents(billing.usedCents);
+const formatXaiRemainingAmount = (billing: XaiBillingSummary): string => {
+  const remainingCents =
+    billing.monthlyLimitCents !== null && billing.usedCents !== null
+      ? Math.max(0, billing.monthlyLimitCents - billing.usedCents)
+      : null;
+  const remaining = formatUsdFromCents(remainingCents);
   const limit = formatUsdFromCents(billing.monthlyLimitCents);
-  if (billing.monthlyLimitCents === null) return used;
-  return `${used} / ${limit}`;
+  if (billing.monthlyLimitCents === null) return remaining;
+  return `${remaining} / ${limit}`;
+};
+
+const XAI_SUPERGROK_LIMIT_CENTS = 15_000;
+const XAI_SUPERGROK_HEAVY_LIMIT_CENTS = 150_000;
+
+const resolveXaiPlan = (
+  monthlyLimitCents: number | null
+): { labelKey: string; premium: boolean } | null => {
+  if (monthlyLimitCents === XAI_SUPERGROK_LIMIT_CENTS) {
+    return { labelKey: 'plan_supergrok', premium: false };
+  }
+  if (monthlyLimitCents === XAI_SUPERGROK_HEAVY_LIMIT_CENTS) {
+    return { labelKey: 'plan_supergrok_heavy', premium: true };
+  }
+  return null;
 };
 
 const renderXaiItems = (
@@ -1762,9 +1781,10 @@ const renderXaiItems = (
     billing.usedPercent === null ? null : Math.max(0, Math.min(100, billing.usedPercent));
   const remaining = clampedUsed === null ? null : Math.max(0, Math.min(100, 100 - clampedUsed));
   const percentLabel = remaining === null ? '--' : `${Math.round(remaining)}%`;
-  const amountLabel = formatXaiUsageAmount(billing);
+  const amountLabel = formatXaiRemainingAmount(billing);
   const resetLabel = formatQuotaResetTime(billing.billingPeriodEnd);
   const onDemandCap = billing.onDemandCapCents ?? 0;
+  const plan = resolveXaiPlan(billing.monthlyLimitCents);
   const payAsYouGoLabel =
     onDemandCap > 0
       ? t('xai_quota.pay_as_you_go_enabled', { cap: formatUsdFromCents(onDemandCap) })
@@ -1773,6 +1793,18 @@ const renderXaiItems = (
   return h(
     Fragment,
     null,
+    plan
+      ? h(
+          'div',
+          { key: 'plan', className: styleMap.codexPlan },
+          h('span', { className: styleMap.codexPlanLabel }, t('xai_quota.plan_label')),
+          h(
+            'span',
+            { className: plan.premium ? styleMap.premiumPlanValue : styleMap.codexPlanValue },
+            t(`xai_quota.${plan.labelKey}`)
+          )
+        )
+      : null,
     h(
       'div',
       { key: 'pay-as-you-go', className: styleMap.codexPlan },
